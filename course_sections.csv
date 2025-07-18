@@ -1,0 +1,33 @@
+sectionId,courseId,subjectCode,catalogNumber,instructors,status,availableSeats,waitlistTotal,capacity,enrolled,meetingTime,location,instructionMode,isAsynchronous
+40957,022973,270,125,"Joshua Rybaski, Caitlin Schaer",OPEN,11,0,20,9,"F 7:00 PM-8:15 PM","Middleton Building 120",Classroom Instruction,false
+44796,022973,270,125,"Caitlin Schaer, Anna Gorman",OPEN,5,0,20,15,"F 5:00 PM-6:15 PM","Middleton Building 120",Classroom Instruction,false
+30055,022973,270,125,"Caitlin Schaer",OPEN,6,0,20,14,"F 3:30 PM-4:45 PM","Middleton Building 120",Classroom Instruction,false
+30054,022973,270,125,"Caitlin Schaer",OPEN,15,0,20,5,"R 10:00 PM-11:15 PM","Middleton Building 120",Classroom Instruction,false
+33887,022973,270,125,"Laura Hiebing, Caitlin Schaer",OPEN,16,0,20,4,"R 8:30 PM-9:45 PM","Middleton Building 120",Classroom Instruction,false
+30987,022973,270,125,"Caitlin Schaer, Maggie Fulling",OPEN,4,0,20,16,"R 8:30 PM-9:45 PM","Educational Sciences 218",Classroom Instruction,false
+44795,022973,270,125,"Caitlin Schaer",OPEN,14,0,20,6,"R 7:00 PM-8:15 PM","Education Building L151",Classroom Instruction,false
+38841,022973,270,125,"Caitlin Schaer",OPEN,2,0,20,18,"R 7:00 PM-8:15 PM","Helen C. White Hall 3255",Classroom Instruction,false
+29301,022973,270,125,"Rachel Weiss, Caitlin Schaer",OPEN,4,0,20,16,"R 5:00 PM-6:15 PM","School of Social Work Building 106",Classroom Instruction,false
+38840,022973,270,125,"Mike Hollander, Caitlin Schaer",OPEN,15,0,20,5,"R 3:30 PM-4:45 PM","Helen C. White Hall 3255",Classroom Instruction,false
+29300,022973,270,125,"Caitlin Schaer, Brad Lanza",OPEN,15,0,20,5,"W 10:00 PM-11:15 PM","Middleton Building 120",Classroom Instruction,false
+28500,022973,270,125,"Frank Rodriguez, Caitlin Schaer",OPEN,10,0,20,10,"W 8:30 PM-9:45 PM","Middleton Building 120",Classroom Instruction,false
+40956,022973,270,125,"Caitlin Schaer, Chris Diorio",OPEN,9,0,20,11,"W 8:30 PM-9:45 PM","Engineering Hall 3444",Classroom Instruction,false
+44794,022973,270,125,"Kristin Dalby, Caitlin Schaer",OPEN,17,0,20,3,"W 7:00 PM-8:15 PM","Education Building L150",Classroom Instruction,false
+21622,022973,270,125,"Blake Bishop, Caitlin Schaer",WAITLISTED,0,0,20,20,"W 5:00 PM-6:15 PM","Grainger Hall 1270",Classroom Instruction,false
+21621,022973,270,125,"Michael Rutkowski, Caitlin Schaer",OPEN,10,0,20,10,"W 3:30 PM-4:45 PM","Education Building 151",Classroom Instruction,false
+44793,022973,270,125,"Caitlin Schaer, Rachel Anderson",OPEN,9,0,20,11,"W 3:30 PM-4:45 PM","Middleton Building 120",Classroom Instruction,false
+21510,022973,270,125,"Teresa Rutecki, Caitlin Schaer",OPEN,15,0,20,5,"T 10:00 PM-11:15 PM","Middleton Building 120",Classroom Instruction,false
+33886,022973,270,125,"Zoe Hurley, Caitlin Schaer",OPEN,13,0,20,7,"T 8:30 PM-9:45 PM","Middleton Building 120",Classroom Instruction,false
+28499,022973,270,125,"Jamie Utphall, Caitlin Schaer",OPEN,6,0,20,14,"T 9:30 PM-10:45 PM","Engineering Hall 2355",Classroom Instruction,false
+21491,022973,270,125,"Caitlin Schaer",OPEN,10,0,20,10,"T 7:00 PM-8:15 PM","Education Building L151",Classroom Instruction,false
+27853,022973,270,125,"Caitlin Schaer",WAITLISTED,0,0,20,21,"T 7:00 PM-8:15 PM","Helen C. White Hall 3255",Classroom Instruction,false
+21488,022973,270,125,"Caitlin Schaer",OPEN,11,0,20,9,"T 5:00 PM-6:15 PM","Education Building L173",Classroom Instruction,false
+21490,022973,270,125,"Caitlin Schaer",OPEN,5,0,20,15,"T 3:30 PM-4:45 PM","Middleton Building 120",Classroom Instruction,false
+44792,022973,270,125,"Caitlin Schaer, Madeline Fer",OPEN,4,0,20,16,"T 3:30 PM-4:45 PM","Helen C. White Hall 3255",Classroom Instruction,false
+32201,022973,270,125,"Tracy Spraetz, Caitlin Schaer",OPEN,9,0,20,11,"M 10:00 PM-11:15 PM","Helen C. White Hall 3255",Classroom Instruction,false
+32200,022973,270,125,"Katie Seibel, Caitlin Schaer",OPEN,16,0,20,4,"M 8:30 PM-9:45 PM","Helen C. White Hall 3255",Classroom Instruction,false
+21487,022973,270,125,"Ryan Grady, Caitlin Schaer",OPEN,3,0,20,17,"M 7:00 PM-8:15 PM","Middleton Building 120",Classroom Instruction,false
+21485,022973,270,125,"Maame Adomako, Caitlin Schaer",OPEN,6,0,20,14,"M 7:00 PM-8:15 PM","Education Building 345",Classroom Instruction,false
+21489,022973,270,125,"Caitlin Iverson, Caitlin Schaer",OPEN,8,0,20,12,"M 5:00 PM-6:15 PM","Grainger Hall 1180",Classroom Instruction,false
+33469,022973,270,125,"Caitlin Schaer, Allison Wanger",OPEN,5,0,20,15,"M 5:00 PM-6:15 PM","Grainger Hall 2175",Classroom Instruction,false
+21486,022973,270,125,"Dorothy Farrar-Edwards, Caitlin Schaer",OPEN,13,0,20,7,"M 3:30 PM-4:45 PM","Helen C. White Hall 3255",Classroom Instruction,false
