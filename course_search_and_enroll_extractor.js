@@ -26,12 +26,10 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
             console.log(`[REQUEST] Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
             const response = await fetch(url, options);
             
-            // Check if response is OK
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
-            // Check content type to ensure it's JSON
             const contentType = response.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
                 const text = await response.text();
@@ -52,7 +50,6 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
                 throw error;
             }
             
-            // Exponential backoff
             const backoffDelay = RATE_LIMIT_DELAY * Math.pow(2, i);
             console.log(`[RETRY] Waiting ${backoffDelay}ms before retry...`);
             await delay(backoffDelay);
@@ -60,7 +57,6 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
     }
 }
 
-// Process requests in batches to avoid overwhelming the server
 async function processBatch(requests, batchSize = BATCH_SIZE) {
     const results = [];
     
@@ -69,7 +65,6 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
         console.log(`[BATCH] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(requests.length / batchSize)} (${batch.length} requests)`);
         
         const batchPromises = batch.map(async (request, index) => {
-            // Stagger requests within batch
             await delay(index * RATE_LIMIT_DELAY);
             return request();
         });
@@ -82,11 +77,10 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
                     results.push(result.value);
                 } else {
                     console.error(`[BATCH ERROR] Request ${i + index} failed:`, result.reason.message);
-                    results.push(null); // placeholder for failed request
+                    results.push(null);
                 }
             });
             
-            // Delay between batches
             if (i + batchSize < requests.length) {
                 console.log(`[BATCH] Waiting ${RATE_LIMIT_DELAY * 2}ms between batches...`);
                 await delay(RATE_LIMIT_DELAY * 2);
@@ -108,12 +102,10 @@ function formatSectionData(courseSections) {
     return courseSections.map(section => {
         const primarySection = section.sections?.[0];
         
-        // Extract instructors
         const instructors = primarySection?.instructors?.map(instructor => 
             `${instructor.name?.first || ''} ${instructor.name?.last || ''}`.trim()
         ) || [];
         
-        // Format meeting time
         const formatTime = (millis) => {
             if (!millis) return '';
             const hours = Math.floor(millis / 3600000);
@@ -145,6 +137,174 @@ function formatSectionData(courseSections) {
             isAsynchronous: section.isAsynchronous || false
         };
     });
+}
+
+function escapeCsvValue(value) {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+}
+
+function generateCSVFiles(courseData, sectionData) {
+    console.log('[START] Generating CSV files...');
+    
+    // Generate courses CSV
+    const coursesHeader = [
+        'course_id', 'subject_code', 'course_designation', 'full_course_designation',
+        'minimum_credits', 'maximum_credits', 'general_education', 'ethnic_studies',
+        'social_science', 'humanities', 'biological_science', 'physical_science',
+        'natural_science', 'literature', 'level'
+    ];
+    
+    const coursesCsv = [
+        coursesHeader.join(','),
+        ...courseData.map(course => coursesHeader.map(field => escapeCsvValue(course[field])).join(','))
+    ].join('\n');
+    
+    fs.writeFileSync('uw_madison_courses.csv', coursesCsv);
+    console.log('[SUCCESS] Courses CSV written to uw_madison_courses.csv');
+    
+    // Generate sections CSV
+    const sectionsHeader = [
+        'section_id', 'course_id', 'subject_code', 'catalog_number',
+        'instructors', 'status', 'available_seats', 'waitlist_total',
+        'capacity', 'enrolled', 'meeting_time', 'location',
+        'instruction_mode', 'is_asynchronous'
+    ];
+    
+    const sectionsCsv = [
+        sectionsHeader.join(','),
+        ...sectionData.map(section => sectionsHeader.map(field => escapeCsvValue(section[field])).join(','))
+    ].join('\n');
+    
+    fs.writeFileSync('uw_madison_sections.csv', sectionsCsv);
+    console.log('[SUCCESS] Sections CSV written to uw_madison_sections.csv');
+}
+
+function generateSQLDump(courseData, sectionData) {
+    console.log('[START] Generating SQL dump...');
+    
+    let sqlDump = `-- UW-Madison Course and Section Data SQL Dump
+-- Generated on: ${new Date().toISOString()}
+
+-- Create courses table
+CREATE TABLE courses (
+    course_id VARCHAR(50) PRIMARY KEY,
+    subject_code VARCHAR(10) NOT NULL,
+    course_designation VARCHAR(20) NOT NULL,
+    full_course_designation VARCHAR(100),
+    minimum_credits INT,
+    maximum_credits INT,
+    general_education VARCHAR(10),
+    ethnic_studies VARCHAR(10),
+    social_science VARCHAR(10),
+    humanities VARCHAR(10),
+    biological_science VARCHAR(10),
+    physical_science VARCHAR(10),
+    natural_science VARCHAR(10),
+    literature VARCHAR(10),
+    level VARCHAR(10),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create sections table
+CREATE TABLE sections (
+    section_id VARCHAR(50) PRIMARY KEY,
+    course_id VARCHAR(50) NOT NULL,
+    subject_code VARCHAR(10) NOT NULL,
+    catalog_number VARCHAR(20),
+    instructors TEXT,
+    status VARCHAR(20),
+    available_seats INT,
+    waitlist_total INT,
+    capacity INT,
+    enrolled INT,
+    meeting_time VARCHAR(100),
+    location VARCHAR(100),
+    instruction_mode VARCHAR(50),
+    is_asynchronous BOOLEAN,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES courses(course_id)
+);
+
+-- Insert course data (bulk insert)
+INSERT INTO courses (course_id, subject_code, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
+
+    // Generate course values in bulk
+    const courseValues = courseData.map(course => {
+        const values = [
+            course.courseId,
+            course.subjectCode,
+            course.courseDesignation,
+            course.fullCourseDesignation,
+            course.minimumCredits,
+            course.maximumCredits,
+            course.generalEducation,
+            course.ethnicStudies,
+            course.socialScience,
+            course.humanities,
+            course.biologicalScience,
+            course.physicalScience,
+            course.naturalScience,
+            course.literature,
+            course.level
+        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
+        
+        return `(${values.join(', ')})`;
+    }).join(',\n');
+
+    sqlDump += courseValues + ';\n\n';
+
+    // Insert section data (bulk insert)
+    sqlDump += '-- Insert section data (bulk insert)\n';
+    sqlDump += 'INSERT INTO sections (section_id, course_id, subject_code, catalog_number, instructors, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
+
+    // Generate section values in bulk
+    const sectionValues = sectionData.map(section => {
+        const values = [
+            section.sectionId,
+            section.courseId,
+            section.subjectCode,
+            section.catalogNumber,
+            section.instructors,
+            section.status,
+            section.availableSeats,
+            section.waitlistTotal,
+            section.capacity,
+            section.enrolled,
+            section.meetingTime,
+            section.location,
+            section.instructionMode,
+            section.isAsynchronous
+        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
+        
+        return `(${values.join(', ')})`;
+    });
+
+    // Split into chunks to avoid extremely long lines
+    const chunkSize = 500; // Number of rows per INSERT statement
+    for (let i = 0; i < sectionValues.length; i += chunkSize) {
+        const chunk = sectionValues.slice(i, i + chunkSize);
+        sqlDump += chunk.join(',\n') + ';\n';
+        
+        // Add another INSERT statement if there are more rows
+        if (i + chunkSize < sectionValues.length) {
+            sqlDump += '\nINSERT INTO sections (section_id, course_id, subject_code, catalog_number, instructors, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
+        }
+    }
+
+    sqlDump += '\n-- Create indexes for better performance\n';
+    sqlDump += 'CREATE INDEX idx_courses_subject_code ON courses(subject_code);\n';
+    sqlDump += 'CREATE INDEX idx_courses_level ON courses(level);\n';
+    sqlDump += 'CREATE INDEX idx_sections_course_id ON sections(course_id);\n';
+    sqlDump += 'CREATE INDEX idx_sections_subject_code ON sections(subject_code);\n';
+    sqlDump += 'CREATE INDEX idx_sections_status ON sections(status);\n';
+
+    fs.writeFileSync('uw_madison_courses.sql', sqlDump);
+    console.log('[SUCCESS] SQL dump written to uw_madison_courses.sql');
 }
 
 async function getAllCourseSearchAndEnrollData() {
@@ -208,7 +368,6 @@ async function getAllCourseSearchAndEnrollData() {
 
         console.log('[START] Fetching section data for all courses...');
         
-        // Create request functions for batch processing
         const sectionRequests = courseData.map((course) => {
             return async () => {
                 const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1262/${course.subjectCode}/${course.courseId}`;
@@ -225,10 +384,8 @@ async function getAllCourseSearchAndEnrollData() {
             };
         });
 
-        // Process requests in batches
         const sectionResults = await processBatch(sectionRequests, BATCH_SIZE);
         
-        // Process and format section data
         const allSectionData = [];
         let successCount = 0;
         let errorCount = 0;
@@ -246,123 +403,16 @@ async function getAllCourseSearchAndEnrollData() {
         console.log(`[SUMMARY] Successfully processed ${successCount} courses, ${errorCount} errors`);
         console.log(`[SUMMARY] Total sections found: ${allSectionData.length}`);
 
-        // Generate SQL dump
-        console.log('[START] Generating SQL dump...');
+        // Generate both SQL and CSV files
         generateSQLDump(courseData, allSectionData);
+        generateCSVFiles(courseData, allSectionData);
 
-        console.log('[COMPLETE] SQL dump generated successfully!');
+        console.log('[COMPLETE] Data export finished successfully!');
         
     } catch (error) {
         console.error('[FATAL ERROR] Error fetching course search and enroll data:', error);
         console.error('Stack trace:', error.stack);
     }
-}
-
-function generateSQLDump(courseData, sectionData) {
-    let sqlDump = `-- UW-Madison Course and Section Data SQL Dump
--- Generated on: ${new Date().toISOString()}
-
--- Create courses table
-CREATE TABLE courses (
-    course_id VARCHAR(50) PRIMARY KEY,
-    subject_code VARCHAR(10) NOT NULL,
-    course_designation VARCHAR(20) NOT NULL,
-    full_course_designation VARCHAR(100),
-    minimum_credits INT,
-    maximum_credits INT,
-    general_education VARCHAR(10),
-    ethnic_studies VARCHAR(10),
-    social_science VARCHAR(10),
-    humanities VARCHAR(10),
-    biological_science VARCHAR(10),
-    physical_science VARCHAR(10),
-    natural_science VARCHAR(10),
-    literature VARCHAR(10),
-    level VARCHAR(10),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create sections table
-CREATE TABLE sections (
-    section_id VARCHAR(50) PRIMARY KEY,
-    course_id VARCHAR(50) NOT NULL,
-    subject_code VARCHAR(10) NOT NULL,
-    catalog_number VARCHAR(20),
-    instructors TEXT,
-    status VARCHAR(20),
-    available_seats INT,
-    waitlist_total INT,
-    capacity INT,
-    enrolled INT,
-    meeting_time VARCHAR(100),
-    location VARCHAR(100),
-    instruction_mode VARCHAR(50),
-    is_asynchronous BOOLEAN,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (course_id) REFERENCES courses(course_id)
-);
-
--- Insert course data
-
-`;
-
-    // Insert course data
-    courseData.forEach(course => {
-        const values = [
-            course.courseId,
-            course.subjectCode,
-            course.courseDesignation,
-            course.fullCourseDesignation,
-            course.minimumCredits,
-            course.maximumCredits,
-            course.generalEducation,
-            course.ethnicStudies,
-            course.socialScience,
-            course.humanities,
-            course.biologicalScience,
-            course.physicalScience,
-            course.naturalScience,
-            course.literature,
-            course.level
-        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
-
-        sqlDump += `INSERT INTO courses (course_id, subject_code, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES (${values.join(', ')});\n`;
-    });
-
-    sqlDump += '\n-- Insert section data\n';
-
-    // Insert section data
-    sectionData.forEach(section => {
-        const values = [
-            section.sectionId,
-            section.courseId,
-            section.subjectCode,
-            section.catalogNumber,
-            section.instructors,
-            section.status,
-            section.availableSeats,
-            section.waitlistTotal,
-            section.capacity,
-            section.enrolled,
-            section.meetingTime,
-            section.location,
-            section.instructionMode,
-            section.isAsynchronous
-        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
-
-        sqlDump += `INSERT INTO sections (section_id, course_id, subject_code, catalog_number, instructors, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES (${values.join(', ')});\n`;
-    });
-
-    sqlDump += '\n-- Create indexes for better performance\n';
-    sqlDump += 'CREATE INDEX idx_courses_subject_code ON courses(subject_code);\n';
-    sqlDump += 'CREATE INDEX idx_courses_level ON courses(level);\n';
-    sqlDump += 'CREATE INDEX idx_sections_course_id ON sections(course_id);\n';
-    sqlDump += 'CREATE INDEX idx_sections_subject_code ON sections(subject_code);\n';
-    sqlDump += 'CREATE INDEX idx_sections_status ON sections(status);\n';
-
-    // Write to file
-    fs.writeFileSync('uw_madison_courses.sql', sqlDump);
-    console.log('[SUCCESS] SQL dump written to uw_madison_courses.sql');
 }
 
 await getAllCourseSearchAndEnrollData();
