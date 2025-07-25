@@ -18,7 +18,7 @@ connection.connect((err) => {
     console.log('Connected as id ' + connection.threadId);
     
     // Run the dump file after connection is established
-    executeDumpFile('rmp_cleaned.sql');
+    executeDumpFile('uw_madison_courses.sql');
 });
 
 function executeDumpFile(filePath) {

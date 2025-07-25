@@ -190,9 +190,12 @@ function generateSQLDump(courseData, sectionData) {
     let sqlDump = `-- UW-Madison Course and Section Data SQL Dump
 -- Generated on: ${new Date().toISOString()}
 
+DROP TABLE IF EXISTS courses;
+DROP TABLE IF EXISTS sections;
+
 -- Create courses table
 CREATE TABLE courses (
-    course_id VARCHAR(50) PRIMARY KEY,
+    course_id VARCHAR(50),
     subject_code VARCHAR(10) NOT NULL,
     course_designation VARCHAR(20) NOT NULL,
     full_course_designation VARCHAR(100),
