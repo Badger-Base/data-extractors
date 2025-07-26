@@ -1,1 +1,1 @@
-Extractor for UW-Madison Course Search and Enroll and Rate my Professor Data
+Extractor for Madgrades, UW-Madison Course Search and Enroll, and Rate my Professor Data
