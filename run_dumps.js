@@ -1,6 +1,17 @@
 const mysql = require('mysql2');
 const fs = require('fs');
 
+const args = process.argv.slice(2);
+
+if (args.length > 0) {
+    console.log("Received arguments:");
+    args.forEach((arg, index) => {
+      console.log(`Argument ${index + 1}: ${arg}`);
+    });
+  } else {
+    console.log("No arguments provided.");
+  }
+
 const connection = mysql.createConnection({
     host: 'interchange.proxy.rlwy.net',
     user: 'root',
@@ -11,6 +22,7 @@ const connection = mysql.createConnection({
 });
 
 connection.connect((err) => {
+
     if (err) {
         console.error('Error connecting: ' + err.stack);
         return;
@@ -18,7 +30,7 @@ connection.connect((err) => {
     console.log('Connected as id ' + connection.threadId);
     
     // Run the dump file after connection is established
-    executeDumpFile('uw_madison_courses.sql');
+    executeDumpFile(args[0]);
 });
 
 function executeDumpFile(filePath) {
