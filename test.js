@@ -1,108 +1,43 @@
-const HEADERS = { 
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0", 
-    "Accept": "*/*", 
-    "Accept-Language": "en-US,en;q=0.5", 
-    "Content-Type": "application/json", 
-    "Authorization": "Basic dGVzdDp0ZXN0", 
-    "Sec-GPC": "1", 
-};
-
-import fs from 'fs';
-
-const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1262/270/022973`;
-
-const response = await fetch(url, { 
-    method: 'GET', 
-    headers: HEADERS, 
+const gradesResponse = await fetch(`https://api.madgrades.com/v1/courses/42005236-400a-3791-b415-bb4b90d86323/grades`, {
+    method: "GET",
+    headers: {
+        "Authorization": "Token token=db0b773feba0467688172d87b38f3f95",
+        "Accept": "application/json"
+    }
 });
 
-const data = await response.json();
-const sectionData = extractSectionData(data);
+const gradesJson = await gradesResponse.json();
 
-// Convert to CSV and save to file
-const csvOutput = convertToCSV(sectionData);
-saveToCsvFile(csvOutput, 'course_sections.csv');
 
-function extractSectionData(courseSections) {
-    return courseSections.map(section => {
-        const primarySection = section.sections[0];
-        
-        // Extract instructors
-        const instructors = section.sections[0].instructors.map(instructor => 
-            `${instructor.name.first} ${instructor.name.last}`
-        );
-        
-        // Format meeting time
-        const formatTime = (millis) => {
-            const hours = Math.floor(millis / 3600000);
-            const minutes = Math.floor((millis % 3600000) / 60000);
-            const period = hours >= 12 ? 'PM' : 'AM';
-            const hour12 = hours % 12 || 12;
-            return `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`;
-        };
-        
-        const meeting = section.classMeetings[0];
-        const meetingTime = meeting ? 
-            `${meeting.meetingDays} ${formatTime(meeting.meetingTimeStart)}-${formatTime(meeting.meetingTimeEnd)}` : 
-            'Online';
-        
-        return {
-            sectionId: section.enrollmentClassNumber,
-            courseId: section.courseId,
-            subjectCode: section.subjectCode,
-            catalogNumber: section.catalogNumber,
-            instructors: instructors,
-            status: section.packageEnrollmentStatus.status,
-            availableSeats: section.packageEnrollmentStatus.availableSeats,
-            waitlistTotal: section.packageEnrollmentStatus.waitlistTotal,
-            capacity: primarySection.enrollmentStatus.capacity,
-            enrolled: primarySection.enrollmentStatus.currentlyEnrolled,
-            meetingTime: meetingTime,
-            location: meeting ? `${meeting.building.buildingName} ${meeting.room}` : 'Online',
-            instructionMode: primarySection.instructionMode,
-            isAsynchronous: section.isAsynchronous
-        };
-    });
+const calculateGrade = (grades) => {
+    let total = 0
+    let totalCount = 0
+    total += grades.aCount * 4
+    totalCount += grades.aCount
+    total += grades.abCount * 3.5
+    totalCount += grades.abCount
+    total += grades.bCount * 3
+    totalCount += grades.bCount
+    total += grades.bcCount * 2.5
+    totalCount += grades.bcCount
+    total += grades.cCount * 2
+    totalCount += grades.cCount
+    total += grades.dCount * 1
+    totalCount += grades.dCount
+    totalCount += grades.fCount
+    return total / totalCount
 }
 
-function convertToCSV(sectionData) {
-    const headers = [
-        'sectionId', 'courseId', 'subjectCode', 'catalogNumber', 'instructors',
-        'status', 'availableSeats', 'waitlistTotal', 'capacity', 'enrolled',
-        'meetingTime', 'location', 'instructionMode', 'isAsynchronous'
-    ];
-    
-    const csvRows = [headers.join(',')];
-    
-    sectionData.forEach(section => {
-        const row = [
-            section.sectionId,
-            section.courseId,
-            section.subjectCode,
-            section.catalogNumber,
-            `"${section.instructors.join(', ')}"`,
-            section.status,
-            section.availableSeats,
-            section.waitlistTotal,
-            section.capacity,
-            section.enrolled,
-            `"${section.meetingTime}"`,
-            `"${section.location}"`,
-            section.instructionMode,
-            section.isAsynchronous
-        ];
-        csvRows.push(row.join(','));
-    });
-    
-    return csvRows.join('\n');
-}
-
-function saveToCsvFile(csvData, filename) {
-    try {
-        fs.writeFileSync(filename, csvData, 'utf8');
-        console.log(`CSV data successfully saved to ${filename}`);
-        console.log(`Total rows: ${csvData.split('\n').length - 1} (excluding header)`);
-    } catch (error) {
-        console.error('Error saving CSV file:', error);
+const ripOutCumulativeGradeAndMostRecentGrade = (grades) => {
+    return {
+        uuid: grades.courseUuid,
+        cumulative: calculateGrade(grades.cumulative).toFixed(2),
+        mostRecent: grades.courseOfferings && grades.courseOfferings.length > 0 
+            ? calculateGrade(grades.courseOfferings[0].cumulative).toFixed(2)
+            : null
     }
 }
+
+
+
+console.log(ripOutCumulativeGradeAndMostRecentGrade(gradesJson))

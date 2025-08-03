@@ -1,1 +1,7 @@
 node_modules/
+uw_madison_courses.sql
+uw_madison_courses.csv
+uw_madison_sections.csv
+course_grades_dump_2025-07-26_21-56-45-228Z.sql
+course_grades_dump_2025-07-27_17-45-39-006Z.sql
+.gitignore

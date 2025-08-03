@@ -283,6 +283,7 @@ course_id,subject_code,course_designation,full_course_designation,minimum_credit
 ,,,,,,,,,,,,,,E
 ,,,,,,,,,,,,,,E
 ,,,,,,,,,H,,,,,E
+,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,E
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,E
@@ -1028,6 +1029,7 @@ course_id,subject_code,course_designation,full_course_designation,minimum_credit
 ,,,,,,,,,H,,,,,I
 ,,,,,,,,,H,,,,,I
 ,,,,,,,,,H,,,,,I
+,,,,,,,,,H,,,,,I
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,I
 ,,,,,,,,,,,,,,
@@ -1767,8 +1769,6 @@ course_id,subject_code,course_designation,full_course_designation,minimum_credit
 ,,,,,,,,,H,,,,,I
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,
-,,,,,,,,,,,,,,E
-,,,,,,,,,,,,,,E
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,
@@ -2750,6 +2750,7 @@ course_id,subject_code,course_designation,full_course_designation,minimum_credit
 ,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,A
 ,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,I
 ,,,,,,,,,,,,,L,A
 ,,,,,,,,,,,,,L,A
 ,,,,,,,,,,,,,,A
