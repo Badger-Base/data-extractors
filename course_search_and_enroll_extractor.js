@@ -125,7 +125,7 @@ function formatSectionData(courseSections) {
             courseId: section.courseId,
             subjectCode: section.subjectCode,
             catalogNumber: section.catalogNumber,
-            instructors: instructors.join(', '),
+            instructors: instructors,
             status: section.packageEnrollmentStatus?.status || 'UNKNOWN',
             availableSeats: section.packageEnrollmentStatus?.availableSeats || 0,
             waitlistTotal: section.packageEnrollmentStatus?.waitlistTotal || 0,
@@ -190,8 +190,9 @@ function generateSQLDump(courseData, sectionData) {
     let sqlDump = `-- UW-Madison Course and Section Data SQL Dump
 -- Generated on: ${new Date().toISOString()}
 
-DROP TABLE IF EXISTS courses;
+DROP TABLE IF EXISTS section_instructors;
 DROP TABLE IF EXISTS sections;
+DROP TABLE IF EXISTS courses;
 
 -- Create courses table
 CREATE TABLE courses (
@@ -215,11 +216,10 @@ CREATE TABLE courses (
 
 -- Create sections table
 CREATE TABLE sections (
-    section_id VARCHAR(50) PRIMARY KEY,
+    section_id VARCHAR(50),
     course_id VARCHAR(50) NOT NULL,
     subject_code VARCHAR(10) NOT NULL,
     catalog_number VARCHAR(20),
-    instructors TEXT,
     status VARCHAR(20),
     available_seats INT,
     waitlist_total INT,
@@ -228,9 +228,15 @@ CREATE TABLE sections (
     meeting_time VARCHAR(100),
     location VARCHAR(100),
     instruction_mode VARCHAR(50),
-    is_asynchronous BOOLEAN,
+    is_asynchronous VARCHAR(5),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE section_instructors (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    section_id VARCHAR(50) NOT NULL,
+    instructor_name VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (course_id) REFERENCES courses(course_id)
 );
 
 -- Insert course data (bulk insert)
@@ -263,7 +269,7 @@ INSERT INTO courses (course_id, subject_code, course_designation, full_course_de
 
     // Insert section data (bulk insert)
     sqlDump += '-- Insert section data (bulk insert)\n';
-    sqlDump += 'INSERT INTO sections (section_id, course_id, subject_code, catalog_number, instructors, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
+    sqlDump += 'INSERT INTO sections (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
 
     // Generate section values in bulk
     const sectionValues = sectionData.map(section => {
@@ -271,8 +277,7 @@ INSERT INTO courses (course_id, subject_code, course_designation, full_course_de
             section.sectionId,
             section.courseId,
             section.subjectCode,
-            section.catalogNumber,
-            section.instructors,
+            section.catalogNumber,  
             section.status,
             section.availableSeats,
             section.waitlistTotal,
@@ -295,8 +300,40 @@ INSERT INTO courses (course_id, subject_code, course_designation, full_course_de
         
         // Add another INSERT statement if there are more rows
         if (i + chunkSize < sectionValues.length) {
-            sqlDump += '\nINSERT INTO sections (section_id, course_id, subject_code, catalog_number, instructors, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
+            sqlDump += '\nINSERT INTO sections (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
         }
+    }
+
+    const sectionInstructorValues = [];
+    sectionData.forEach(section => {
+        if (section.instructors && Array.isArray(section.instructors) && section.instructors.length > 0) {
+            section.instructors.forEach(instructor => {
+                if (instructor && instructor.trim() !== '') {
+                    const sectionId = section.sectionId === null || section.sectionId === undefined ? 'NULL' : `'${String(section.sectionId).replace(/'/g, "''")}'`;
+                    const instructorName = `'${String(instructor).replace(/'/g, "''")}'`;
+                    sectionInstructorValues.push(`(${sectionId}, ${instructorName})`);
+                }
+            });
+        }
+    });
+
+
+    if (sectionInstructorValues.length > 0) {
+        sqlDump += '\n-- Insert section instructor data (bulk insert)\n';
+        sqlDump += 'INSERT INTO section_instructors (section_id, instructor_name) VALUES\n';
+        
+        // Split instructor data into chunks as well
+        for (let i = 0; i < sectionInstructorValues.length; i += chunkSize) {
+            const chunk = sectionInstructorValues.slice(i, i + chunkSize);
+            sqlDump += chunk.join(',\n') + ';\n';
+            
+            // Add another INSERT statement if there are more rows
+            if (i + chunkSize < sectionInstructorValues.length) {
+                sqlDump += '\nINSERT INTO section_instructors (section_id, instructor_name) VALUES\n';
+            }
+        }
+    } else {
+        sqlDump += '\n-- No instructor data to insert\n';
     }
 
     sqlDump += '\n-- Create indexes for better performance\n';
@@ -305,6 +342,8 @@ INSERT INTO courses (course_id, subject_code, course_designation, full_course_de
     sqlDump += 'CREATE INDEX idx_sections_course_id ON sections(course_id);\n';
     sqlDump += 'CREATE INDEX idx_sections_subject_code ON sections(subject_code);\n';
     sqlDump += 'CREATE INDEX idx_sections_status ON sections(status);\n';
+    sqlDump += 'CREATE INDEX idx_section_instructors_section_id ON section_instructors(section_id);\n';
+    sqlDump += 'CREATE INDEX idx_section_instructors_name ON section_instructors(instructor_name);\n';
 
     fs.writeFileSync('uw_madison_courses.sql', sqlDump);
     console.log('[SUCCESS] SQL dump written to uw_madison_courses.sql');
@@ -411,6 +450,8 @@ async function getAllCourseSearchAndEnrollData() {
         generateCSVFiles(courseData, allSectionData);
 
         console.log('[COMPLETE] Data export finished successfully!');
+
+
         
     } catch (error) {
         console.error('[FATAL ERROR] Error fetching course search and enroll data:', error);
