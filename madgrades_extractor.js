@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 async function main() {
     // Get all courses
@@ -47,12 +47,21 @@ async function main() {
     console.log(`Starting aggressive batch processing with ${batchSize} courses per batch...`);
 
     const ripOutCumulativeGradeAndMostRecentGrade = (grades) => {
+        const gradeData = getGradesPercentages(grades)
         return {
             uuid: grades.courseUuid,
             cumulative: calculateGrade(grades.cumulative).toFixed(2),
             mostRecent: grades.courseOfferings && grades.courseOfferings.length > 0 
                 ? calculateGrade(grades.courseOfferings[0].cumulative).toFixed(2)
-                : null
+                : null,
+            median: findMedianGrade(gradeData),
+            aPercentage: gradeData.a,
+            abPercentage: gradeData.ab,
+            bPercentage: gradeData.b,
+            bcPercentage: gradeData.bc,
+            cPercentage: gradeData.c,
+            dPercentage: gradeData.d,
+            fPercentage: gradeData.f
         }
     }
     
@@ -73,6 +82,42 @@ async function main() {
         totalCount += grades.dCount
         totalCount += grades.fCount
         return total / totalCount
+    }
+
+    const getGradesPercentages = (grades) => {
+        let totalCount = 0
+        totalCount += grades.aCount
+        totalCount += grades.abCount
+        totalCount += grades.bCount
+        totalCount += grades.bcCount
+        totalCount += grades.cCount
+        totalCount += grades.dCount
+        return {
+            a: grades.aCount / grades.totalCount,
+            ab: grades.abCount / grades.totalCount,
+            b: grades.bCount / grades.totalCount,
+            bc: grades.bcCount / grades.totalCount,
+            c: grades.cCount / grades.totalCount,
+            d: grades.dCount / grades.totalCount,
+            f: grades.fCount / grades.totalCount
+        }
+    }
+
+    function findMedianGrade(gradeData) {
+        // Create array of all grades
+        const allGrades = [];
+        const gradeOrder = ['f', 'd', 'c', 'bc', 'b', 'ab', 'a']; // worst to best
+        
+        for (let grade of gradeOrder) {
+            const count = gradeData[grade + 'Count'] || 0;
+            for (let i = 0; i < count; i++) {
+                allGrades.push(grade.toUpperCase());
+            }
+        }
+        
+        // Find median position
+        const medianIndex = Math.floor(allGrades.length / 2);
+        return allGrades[medianIndex];
     }
     
     const startTime = Date.now();
@@ -209,15 +254,29 @@ async function generateAndSaveSQLDump(parsed_grades) {
             const name = grade.name;
             const cumulative = grade.grades.cumulative ? parseFloat(grade.grades.cumulative) : null;
             const mostRecent = grade.grades.mostRecent ? parseFloat(grade.grades.mostRecent) : null;
-            
+            const median = grade.grades.median ? grade.grades.median : null;
+            const aPercentage = grade.grades.aPercentage ? grade.grades.aPercentage : null;
+            const abPercentage = grade.grades.abPercentage ? grade.grades.abPercentage : null;
+            const bPercentage = grade.grades.bPercentage ? grade.grades.bPercentage : null;
+            const bcPercentage = grade.grades.bcPercentage ? grade.grades.bcPercentage : null;
+            const cPercentage = grade.grades.cPercentage ? grade.grades.cPercentage : null;
+            const dPercentage = grade.grades.dPercentage ? grade.grades.dPercentage : null;
+            const fPercentage = grade.grades.fPercentage ? grade.grades.fPercentage : null;
             // Escape single quotes in UUID (though UUIDs shouldn't have them)
             const escapedUuid = uuid.replace(/'/g, "''");
             
             const cumulativeValue = cumulative !== null && !isNaN(cumulative) ? cumulative.toFixed(2) : 'NULL';
             const mostRecentValue = mostRecent !== null && !isNaN(mostRecent) ? mostRecent.toFixed(2) : 'NULL';
-            
+            const medianValue = median !== null && !isNaN(median) ? median.toFixed(2) : 'NULL';
+            const aPercentageValue = aPercentage !== null && !isNaN(aPercentage) ? aPercentage.toFixed(2) : 'NULL';
+            const abPercentageValue = abPercentage !== null && !isNaN(abPercentage) ? abPercentage.toFixed(2) : 'NULL';
+            const bPercentageValue = bPercentage !== null && !isNaN(bPercentage) ? bPercentage.toFixed(2) : 'NULL';
+            const bcPercentageValue = bcPercentage !== null && !isNaN(bcPercentage) ? bcPercentage.toFixed(2) : 'NULL';
+            const cPercentageValue = cPercentage !== null && !isNaN(cPercentage) ? cPercentage.toFixed(2) : 'NULL';
+            const dPercentageValue = dPercentage !== null && !isNaN(dPercentage) ? dPercentage.toFixed(2) : 'NULL';
+            const fPercentageValue = fPercentage !== null && !isNaN(fPercentage) ? fPercentage.toFixed(2) : 'NULL';
             const isLast = index === batch.length - 1;
-            return `    ('${escapedUuid}', '${name}', ${cumulativeValue}, ${mostRecentValue})${isLast ? ';' : ','}`;
+            return `    ('${escapedUuid}', '${name}', ${cumulativeValue}, ${mostRecentValue}, ${medianValue}, ${aPercentageValue}, ${abPercentageValue}, ${bPercentageValue}, ${bcPercentageValue}, ${cPercentageValue}, ${dPercentageValue}, ${fPercentageValue})${isLast ? ';' : ','}`;
         }).join('\n');
         
         sqlContent += insertValues + '\n';
@@ -249,7 +308,7 @@ async function generateAndSaveSQLDump(parsed_grades) {
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
-    const filename = `course_grades_dump_${timestamp}.sql`;
+    const filename = 'madgrades_course_grades_dump.sql';
     const filepath = path.join(process.cwd(), filename);
     
     try {
