@@ -182,7 +182,7 @@ async function main() {
     
     console.log("Sample grades data:", allGrades.slice(0, 2)); // Show first 2 for inspection
 
-    const parsed_grades = parseGrades(allGrades);
+    const parsed_grades = await parseGrades(allGrades);
     
     // Generate and save SQL dump
     await generateAndSaveSQLDump(parsed_grades);
@@ -226,6 +226,14 @@ async function generateAndSaveSQLDump(parsed_grades) {
     sqlContent += `    course_name VARCHAR(255) NOT NULL,\n`;
     sqlContent += `    cumulative_gpa DECIMAL(3,2),\n`;
     sqlContent += `    most_recent_gpa DECIMAL(3,2),\n`;
+    sqlContent += `    median_grade VARCHAR(255),\n`;
+    sqlContent += `    a_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    ab_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    b_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    bc_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    c_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    d_percentage DECIMAL(3,2),\n`;
+    sqlContent += `    f_percentage DECIMAL(3,2),\n`;
     sqlContent += `    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n`;
     sqlContent += `);\n\n`;
     
@@ -247,7 +255,7 @@ async function generateAndSaveSQLDump(parsed_grades) {
         const totalBatches = Math.ceil(validGrades.length / batchSize);
         
         sqlContent += `\n-- Batch ${batchNumber}/${totalBatches} (records ${i + 1}-${Math.min(i + batchSize, validGrades.length)})\n`;
-        sqlContent += `INSERT INTO course_grades (course_uuid, course_name, cumulative_gpa, most_recent_gpa) VALUES\n`;
+        sqlContent += `INSERT INTO course_grades (course_uuid, course_name, cumulative_gpa, most_recent_gpa, median_grade, a_percentage, ab_percentage, b_percentage, bc_percentage, c_percentage, d_percentage, f_percentage) VALUES\n`;
         
         const insertValues = batch.map((grade, index) => {
             const uuid = grade.grades.uuid;

@@ -236,7 +236,7 @@ CREATE TABLE section_instructors (
     id INT AUTO_INCREMENT PRIMARY KEY,
     section_id VARCHAR(50) NOT NULL,
     instructor_name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Insert course data (bulk insert)
