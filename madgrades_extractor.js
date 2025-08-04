@@ -47,14 +47,17 @@ async function main() {
     console.log(`Starting aggressive batch processing with ${batchSize} courses per batch...`);
 
     const ripOutCumulativeGradeAndMostRecentGrade = (grades) => {
-        const gradeData = getGradesPercentages(grades)
+        const gradeData = getGradesPercentages(grades.cumulative)
+        const median = findMedianGrade(grades.cumulative)
+        console.log("median", median)
+        console.log("gradeData", gradeData)
         return {
             uuid: grades.courseUuid,
             cumulative: calculateGrade(grades.cumulative).toFixed(2),
             mostRecent: grades.courseOfferings && grades.courseOfferings.length > 0 
                 ? calculateGrade(grades.courseOfferings[0].cumulative).toFixed(2)
                 : null,
-            median: findMedianGrade(gradeData),
+            median: median,
             aPercentage: gradeData.a,
             abPercentage: gradeData.ab,
             bPercentage: gradeData.b,
@@ -85,6 +88,7 @@ async function main() {
     }
 
     const getGradesPercentages = (grades) => {
+        console.log("grades", grades)
         let totalCount = 0
         totalCount += grades.aCount
         totalCount += grades.abCount
@@ -92,14 +96,26 @@ async function main() {
         totalCount += grades.bcCount
         totalCount += grades.cCount
         totalCount += grades.dCount
+        totalCount += grades.fCount
+        if (totalCount === 0) {
+            return {
+                a: 0,
+                ab: 0,
+                b: 0,
+                bc: 0,
+                c: 0,
+                d: 0,
+                f: 0
+            }
+        }
         return {
-            a: grades.aCount / grades.totalCount,
-            ab: grades.abCount / grades.totalCount,
-            b: grades.bCount / grades.totalCount,
-            bc: grades.bcCount / grades.totalCount,
-            c: grades.cCount / grades.totalCount,
-            d: grades.dCount / grades.totalCount,
-            f: grades.fCount / grades.totalCount
+            a: grades.aCount / totalCount,
+            ab: grades.abCount / totalCount,
+            b: grades.bCount / totalCount,
+            bc: grades.bcCount / totalCount,
+            c: grades.cCount / totalCount,
+            d: grades.dCount / totalCount,
+            f: grades.fCount / totalCount
         }
     }
 
@@ -222,7 +238,7 @@ async function generateAndSaveSQLDump(parsed_grades) {
     sqlContent += `DROP TABLE IF EXISTS course_grades;\n\n`;
     sqlContent += `CREATE TABLE course_grades (\n`;
     sqlContent += `    id SERIAL PRIMARY KEY,\n`;
-    sqlContent += `    course_uuid VARCHAR(255) NOT NULL UNIQUE,\n`;
+    sqlContent += `    course_uuid VARCHAR(255) NOT NULL,\n`;
     sqlContent += `    course_name VARCHAR(255) NOT NULL,\n`;
     sqlContent += `    cumulative_gpa DECIMAL(3,2),\n`;
     sqlContent += `    most_recent_gpa DECIMAL(3,2),\n`;
