@@ -1,0 +1,30 @@
+name: Daily Course Update
+
+on:
+  schedule:
+    # Run every day at 9:00 PM UTC
+    - cron: '0 01 * * *'
+  # Optional: allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  update-courses:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: npm install
+        
+    - name: Run course search and enroll extractor
+      run: node course_search_and_enroll_extractor.js
+      
+    - name: Run database dumps
+      run: node run_dumps.js uw_madison_courses.sql
