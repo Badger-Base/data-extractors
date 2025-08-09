@@ -1,5 +1,7 @@
 import mysql from 'mysql2';
 import fs from 'fs';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const args = process.argv.slice(2);
 
@@ -11,6 +13,12 @@ if (args.length > 0) {
   } else {
     console.log("No arguments provided.");
   }
+
+console.log(process.env.DB_HOST);
+console.log(process.env.DB_USER);
+console.log(process.env.DB_PASSWORD);
+console.log(process.env.DB_NAME);
+console.log(process.env.DB_PORT);
 
 const connection = mysql.createConnection({
     host: process.env.DB_HOST,

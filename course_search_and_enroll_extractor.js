@@ -199,6 +199,10 @@ CREATE TABLE courses (
     course_id VARCHAR(50),
     subject_code VARCHAR(10) NOT NULL,
     course_designation VARCHAR(20) NOT NULL,
+    course_title VARCHAR(100),
+    course_description TEXT,
+    enrollment_prerequisites TEXT,
+    letters_and_science_credits VARCHAR(1),
     full_course_designation VARCHAR(100),
     minimum_credits INT,
     maximum_credits INT,
@@ -240,13 +244,17 @@ CREATE TABLE section_instructors (
 );
 
 -- Insert course data (bulk insert)
-INSERT INTO courses (course_id, subject_code, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
+INSERT INTO courses (course_id, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
 
     // Generate course values in bulk
     const courseValues = courseData.map(course => {
         const values = [
             course.courseId,
             course.subjectCode,
+            course.title,
+            course.description,
+            course.enrollmentPrerequisites,
+            course.lettersAndScienceCredits,
             course.courseDesignation,
             course.fullCourseDesignation,
             course.minimumCredits,
@@ -396,9 +404,13 @@ async function getAllCourseSearchAndEnrollData() {
             courseDesignation: course.courseDesignation,
             fullCourseDesignation: course.fullCourseDesignation,
             minimumCredits: course.minimumCredits,
+            title: course.title,
+            description: course.description,
+            enrollmentPrerequisites: course.enrollmentPrerequisites,
             maximumCredits: course.maximumCredits,
             generalEducation: course.generalEd?.code,
             ethnicStudies: course.ethnicStudies?.code,
+            lettersAndScienceCredits: course.lettersAndScienceCredits === null ? null : course.lettersAndScienceCredits.code,
             socialScience: course.breadths?.find(b => b.code === 'S')?.code,
             humanities: course.breadths?.find(b => b.code === 'H')?.code,
             biologicalScience: course.breadths?.find(b => b.code === 'B')?.code,

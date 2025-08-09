@@ -235,8 +235,8 @@ async function generateAndSaveSQLDump(parsed_grades) {
     
     // Create table
     sqlContent += `-- Create table for course grades\n`;
-    sqlContent += `DROP TABLE IF EXISTS course_grades;\n\n`;
-    sqlContent += `CREATE TABLE course_grades (\n`;
+    sqlContent += `DROP TABLE IF EXISTS madgrades_course_grades;\n\n`;
+    sqlContent += `CREATE TABLE madgrades_course_grades (\n`;
     sqlContent += `    id SERIAL PRIMARY KEY,\n`;
     sqlContent += `    course_uuid VARCHAR(255) NOT NULL,\n`;
     sqlContent += `    course_name VARCHAR(255) NOT NULL,\n`;
@@ -255,15 +255,15 @@ async function generateAndSaveSQLDump(parsed_grades) {
     
     // Add indexes
     sqlContent += `-- Create indexes\n`;
-    sqlContent += `CREATE INDEX idx_course_grades_uuid ON course_grades(course_uuid);\n`;
-    sqlContent += `CREATE INDEX idx_course_grades_cumulative ON course_grades(cumulative_gpa);\n`;
-    sqlContent += `CREATE INDEX idx_course_grades_recent ON course_grades(most_recent_gpa);\n\n`;
+    sqlContent += `CREATE INDEX idx_madgrades_course_grades_uuid ON madgrades_course_grades(course_uuid);\n`;
+    sqlContent += `CREATE INDEX idx_madgrades_course_grades_cumulative ON madgrades_course_grades(cumulative_gpa);\n`;
+    sqlContent += `CREATE INDEX idx_madgrades_course_grades_recent ON madgrades_course_grades(most_recent_gpa);\n\n`;
     
     // Prepare data insertion in batches of 500
     const validGrades = parsed_grades.filter(grade => grade && grade.grades && grade.grades.uuid);
     const batchSize = 500;
     
-    sqlContent += `-- Insert course grades data in batches\n`;
+    sqlContent += `-- Insert madgrades course grades data in batches\n`;
     
     for (let i = 0; i < validGrades.length; i += batchSize) {
         const batch = validGrades.slice(i, i + batchSize);
@@ -271,14 +271,14 @@ async function generateAndSaveSQLDump(parsed_grades) {
         const totalBatches = Math.ceil(validGrades.length / batchSize);
         
         sqlContent += `\n-- Batch ${batchNumber}/${totalBatches} (records ${i + 1}-${Math.min(i + batchSize, validGrades.length)})\n`;
-        sqlContent += `INSERT INTO course_grades (course_uuid, course_name, cumulative_gpa, most_recent_gpa, median_grade, a_percentage, ab_percentage, b_percentage, bc_percentage, c_percentage, d_percentage, f_percentage) VALUES\n`;
+        sqlContent += `INSERT INTO madgrades_course_grades (course_uuid, course_name, cumulative_gpa, most_recent_gpa, median_grade, a_percentage, ab_percentage, b_percentage, bc_percentage, c_percentage, d_percentage, f_percentage) VALUES\n`;
         
         const insertValues = batch.map((grade, index) => {
             const uuid = grade.grades.uuid;
             const name = grade.name;
             const cumulative = grade.grades.cumulative ? parseFloat(grade.grades.cumulative) : null;
             const mostRecent = grade.grades.mostRecent ? parseFloat(grade.grades.mostRecent) : null;
-            const median = grade.grades.median ? grade.grades.median : null;
+            const median = grade.grades.median;
             const aPercentage = grade.grades.aPercentage ? grade.grades.aPercentage : null;
             const abPercentage = grade.grades.abPercentage ? grade.grades.abPercentage : null;
             const bPercentage = grade.grades.bPercentage ? grade.grades.bPercentage : null;
@@ -291,7 +291,7 @@ async function generateAndSaveSQLDump(parsed_grades) {
             
             const cumulativeValue = cumulative !== null && !isNaN(cumulative) ? cumulative.toFixed(2) : 'NULL';
             const mostRecentValue = mostRecent !== null && !isNaN(mostRecent) ? mostRecent.toFixed(2) : 'NULL';
-            const medianValue = median !== null && !isNaN(median) ? median.toFixed(2) : 'NULL';
+            const medianValue = median !== null && median !== undefined && median !== '' ? `'${median}'` : 'NULL';
             const aPercentageValue = aPercentage !== null && !isNaN(aPercentage) ? aPercentage.toFixed(2) : 'NULL';
             const abPercentageValue = abPercentage !== null && !isNaN(abPercentage) ? abPercentage.toFixed(2) : 'NULL';
             const bPercentageValue = bPercentage !== null && !isNaN(bPercentage) ? bPercentage.toFixed(2) : 'NULL';
@@ -309,11 +309,11 @@ async function generateAndSaveSQLDump(parsed_grades) {
     // Add some statistics queries
     sqlContent += `\n\n-- Statistics queries\n`;
     sqlContent += `-- Total courses with grades\n`;
-    sqlContent += `SELECT COUNT(*) as total_courses FROM course_grades;\n\n`;
+    sqlContent += `SELECT COUNT(*) as total_courses FROM madgrades_course_grades;\n\n`;
     sqlContent += `-- Average cumulative GPA\n`;
-    sqlContent += `SELECT AVG(cumulative_gpa) as avg_cumulative_gpa FROM course_grades WHERE cumulative_gpa IS NOT NULL;\n\n`;
+    sqlContent += `SELECT AVG(cumulative_gpa) as avg_cumulative_gpa FROM madgrades_course_grades WHERE cumulative_gpa IS NOT NULL;\n\n`;
     sqlContent += `-- Average most recent GPA\n`;
-    sqlContent += `SELECT AVG(most_recent_gpa) as avg_recent_gpa FROM course_grades WHERE most_recent_gpa IS NOT NULL;\n\n`;
+    sqlContent += `SELECT AVG(most_recent_gpa) as avg_recent_gpa FROM madgrades_course_grades WHERE most_recent_gpa IS NOT NULL;\n\n`;
     sqlContent += `-- GPA distribution (cumulative)\n`;
     sqlContent += `SELECT \n`;
     sqlContent += `    CASE \n`;
@@ -324,8 +324,8 @@ async function generateAndSaveSQLDump(parsed_grades) {
     sqlContent += `        ELSE 'F (0-2.24)'\n`;
     sqlContent += `    END as grade_range,\n`;
     sqlContent += `    COUNT(*) as course_count,\n`;
-    sqlContent += `    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM course_grades WHERE cumulative_gpa IS NOT NULL), 2) as percentage\n`;
-    sqlContent += `FROM course_grades \n`;
+    sqlContent += `    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM madgrades_course_grades WHERE cumulative_gpa IS NOT NULL), 2) as percentage\n`;
+    sqlContent += `FROM madgrades_course_grades \n`;
     sqlContent += `WHERE cumulative_gpa IS NOT NULL \n`;
     sqlContent += `GROUP BY grade_range \n`;
     sqlContent += `ORDER BY MIN(cumulative_gpa) DESC;\n`;
@@ -361,7 +361,7 @@ async function generateAndSaveSQLDump(parsed_grades) {
         console.error('Error saving SQL dump:', error);
         
         // Fallback: save to a default location
-        const fallbackFilename = 'course_grades_dump.sql';
+        const fallbackFilename = 'madgrades_course_grades_dump.sql';
         try {
             await fs.promises.writeFile(fallbackFilename, sqlContent, 'utf8');
             console.log(`Saved to fallback location: ${fallbackFilename}`);
