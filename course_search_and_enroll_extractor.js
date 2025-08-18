@@ -8,7 +8,7 @@ const DEV_CONFIG = {
     TEST_MODE: true,
     
     // Number of courses to fetch in test mode (1-10 recommended for quick testing)
-    TEST_COURSE_LIMIT: 3,
+    TEST_COURSE_LIMIT: 50,
     
     // Set to true to use mock data instead of API calls (instant testing)
     USE_MOCK_DATA: false,
@@ -24,6 +24,8 @@ const DEV_CONFIG = {
     
     // Verbose logging for debugging
     VERBOSE_LOGGING: true
+
+    
 };
 
 const HEADERS = {
@@ -206,14 +208,24 @@ function formatSectionData(courseSections) {
             `${instructor.name?.first || ''} ${instructor.name?.last || ''}`.trim()
         ) || [];
         
-        const formatTime = (millis) => {
-            if (!millis) return '';
-            const hours = Math.floor(millis / 3600000);
-            const minutes = Math.floor((millis % 3600000) / 60000);
+        function formatTime(millis) {
+            if (!millis) return null;
+            
+            
+            // Convert to CST by subtracting 6 hours
+            const CST_OFFSET_MS = 6 * 60 * 60 * 1000;
+            let adjusted = millis - CST_OFFSET_MS;
+        
+            // Wrap around if negative (before midnight)
+            if (adjusted < 0) {
+                adjusted += 24 * 60 * 60 * 1000;
+            }       
+            const hours = Math.floor(adjusted / 3600000);
+            const minutes = Math.floor((adjusted % 3600000) / 60000);
             const period = hours >= 12 ? 'PM' : 'AM';
             const hour12 = hours % 12 || 12;
             return `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`;
-        };
+        }
         
         const meeting = section.classMeetings?.[0];
         const meetingTime = meeting ? 
@@ -235,26 +247,69 @@ function formatSectionData(courseSections) {
             isAsynchronous: section.isAsynchronous || false
         });
 
-        const classMeetings = section.classMeetings?.filter(meeting => 
-            meeting.meetingType != 'EXAM'
-        ) || [];
-        
-        classMeetings.forEach((meeting, index) => {
-            const meetingData = {
-                meetingType: meeting.meetingType,
-                sectionId: section.enrollmentClassNumber,
-                meetingNumber: index + 1,
-                meetingDays: meeting.meetingDays || null,
-                startTime: formatTime(meeting.meetingTimeStart),
-                endTime: formatTime(meeting.meetingTimeEnd),
-                buildingName: meeting.building?.buildingName || null,
-                room: meeting.room || null,
-                location: meeting.building ? 
-                    `${meeting.building.buildingName || ''} ${meeting.room || ''}`.trim() : null
-            };
-
+        section.sections?.forEach( nestedSection => {
             
-        meetings.push(meetingData);
+            const firstClassMeeting = nestedSection.classMeetings?.find(meeting => 
+                meeting.meetingType === 'CLASS'
+            );
+
+            if (firstClassMeeting) {
+
+            const meetingData = {
+                meetingType: nestedSection.type,
+                meetingNumber: firstClassMeeting.meetingOrExamNumber,
+                sectionId: section.enrollmentClassNumber,
+                meetingDays: firstClassMeeting.meetingDays || null,
+                startTime: formatTime(firstClassMeeting.meetingTimeStart),
+                endTime: formatTime(firstClassMeeting.meetingTimeEnd),
+                buildingName: firstClassMeeting.building?.buildingName || null,
+                room: firstClassMeeting.room || null,
+                location: firstClassMeeting.building ? 
+                    `${firstClassMeeting.building.buildingName || ''} ${firstClassMeeting.room || ''}`.trim() : null,
+                // Add individual day meeting times (weekdays only)
+                mondayMeetingStart: null,
+                mondayMeetingEnd: null,
+                tuesdayMeetingStart: null,
+                tuesdayMeetingEnd: null,
+                wednesdayMeetingStart: null,
+                wednesdayMeetingEnd: null,
+                thursdayMeetingStart: null,
+                thursdayMeetingEnd: null,
+                fridayMeetingStart: null,
+                fridayMeetingEnd: null
+            };
+            const meetingDays = firstClassMeeting.meetingDaysList || []; 
+
+            const startTime = firstClassMeeting.meetingTimeStart;
+            const endTime = firstClassMeeting.meetingTimeEnd;
+
+            meetingDays.forEach(day => {
+                switch(day.toUpperCase()) {
+                    case 'MONDAY':
+                        meetingData.mondayMeetingStart = startTime;
+                        meetingData.mondayMeetingEnd = endTime;
+                        break;
+                    case 'TUESDAY':
+                        meetingData.tuesdayMeetingStart = startTime;
+                        meetingData.tuesdayMeetingEnd = endTime;
+                        break;
+                    case 'WEDNESDAY':
+                        meetingData.wednesdayMeetingStart = startTime;
+                        meetingData.wednesdayMeetingEnd = endTime;
+                        break;
+                    case 'THURSDAY':
+                        meetingData.thursdayMeetingStart = startTime;
+                        meetingData.thursdayMeetingEnd = endTime;
+                        break;
+                    case 'FRIDAY':
+                        meetingData.fridayMeetingStart = startTime;
+                        meetingData.fridayMeetingEnd = endTime;
+                        break;
+                }
+            });
+            
+            meetings.push(meetingData);
+            }
         });
 
     });
@@ -327,6 +382,7 @@ function generateSQLDump(courseData, sectionData, meetingData) {
 DROP TABLE IF EXISTS ${instructorsTable};
 DROP TABLE IF EXISTS ${sectionsTable};
 DROP TABLE IF EXISTS ${coursesTable};
+DROP TABLE IF EXISTS ${meetingsTable};
 
 -- Create courses table
 CREATE TABLE ${coursesTable} (
@@ -379,18 +435,20 @@ CREATE TABLE ${meetingsTable} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     section_id VARCHAR(50) NOT NULL,
     meeting_type VARCHAR(50) NOT NULL,
-    meeting_number INT NOT NULL,
-    meeting_days VARCHAR(10) NOT NULL,
-    start_time VARCHAR(10) NOT NULL,
-    end_time VARCHAR(10) NOT NULL,
-    building_name VARCHAR(100) NOT NULL,
-    room VARCHAR(100) NOT NULL,
-    location VARCHAR(100) NOT NULL,
+    meeting_number INT,
+    meeting_days VARCHAR(10),
+    start_time VARCHAR(10),
+    end_time VARCHAR(10),
+    building_name VARCHAR(100),
+    room VARCHAR(100),
+    location VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Insert course data
 INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
+
+    const chunkSize = 500; // Number of rows per INSERT statement
 
     // Generate course values
     const courseValues = courseData.map(course => {
@@ -426,19 +484,25 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
         sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous) VALUES\n`;
 
         const sectionValues = sectionData.map(section => {
+            const formatValue = (val, isNumeric = false) => {
+                if (val === null || val === undefined) return 'NULL';
+                if (isNumeric) return String(val); // Don't quote numeric values
+                return `'${String(val).replace(/'/g, "''")}'`; // Quote string values
+            };
+        
             const values = [
-                section.sectionId,
-                section.courseId,
-                section.subjectCode,
-                section.catalogNumber,  
-                section.status,
-                section.availableSeats,
-                section.waitlistTotal,
-                section.capacity,
-                section.enrolled,
-                section.instructionMode,
-                section.isAsynchronous
-            ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
+                formatValue(section.sectionId),           // string
+                formatValue(section.courseId),            // string  
+                formatValue(section.subjectCode),         // string
+                formatValue(section.catalogNumber),       // string
+                formatValue(section.status),              // string
+                formatValue(section.availableSeats, true),   // numeric - no quotes
+                formatValue(section.waitlistTotal, true),    // numeric - no quotes  
+                formatValue(section.capacity, true),         // numeric - no quotes
+                formatValue(section.enrolled, true),         // numeric - no quotes
+                formatValue(section.instructionMode),     // string
+                formatValue(section.isAsynchronous)       // string
+            ];
             
             return `(${values.join(', ')})`;
         }).join(',\n');
@@ -463,6 +527,48 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
             sqlDump += `-- Insert section instructor data\nINSERT INTO ${instructorsTable} (section_id, instructor_name) VALUES\n`;
             sqlDump += sectionInstructorValues.join(',\n') + ';\n\n';
         }
+    }
+
+    // Insert meeting data
+
+    if (meetingData.length > 0) {
+        const meetingValues = meetingData.map(meeting => {
+            const formatValue = (val, isNumeric = false) => {
+                if (val === null || val === undefined) return 'NULL';
+                if (isNumeric) return String(val);
+                return `'${String(val).replace(/'/g, "''")}'`;
+            };
+
+            const values = [
+                formatValue(meeting.sectionId),
+                formatValue(meeting.meetingNumber, true),
+                formatValue(meeting.meetingDays),
+                formatValue(meeting.startTime),
+                formatValue(meeting.endTime),
+                formatValue(meeting.buildingName),
+                formatValue(meeting.meetingType),
+                formatValue(meeting.room),
+                formatValue(meeting.location)
+            ];
+            
+            return `(${values.join(', ')})`;
+        });
+
+        sqlDump += '\n-- Insert section meeting data (bulk insert)\n';
+        sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location) VALUES\n';
+        
+        // Split meeting data into chunks as well
+        for (let i = 0; i < meetingValues.length; i += chunkSize) {
+            const chunk = meetingValues.slice(i, i + chunkSize);
+            sqlDump += chunk.join(',\n') + ';\n';
+            
+            // Add another INSERT statement if there are more rows
+            if (i + chunkSize < meetingValues.length) {
+                sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location) VALUES\n';
+            }
+        }
+    } else {
+        sqlDump += '\n-- No meeting data to insert\n';
     }
 
     // Add indexes
