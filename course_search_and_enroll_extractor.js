@@ -1,5 +1,31 @@
 import fs from 'fs';
 
+// ====================================
+// DEVELOPMENT CONFIGURATION
+// ====================================
+const DEV_CONFIG = {
+    // Set to true for rapid testing - only fetches first few courses
+    TEST_MODE: true,
+    
+    // Number of courses to fetch in test mode (1-10 recommended for quick testing)
+    TEST_COURSE_LIMIT: 3,
+    
+    // Set to true to use mock data instead of API calls (instant testing)
+    USE_MOCK_DATA: false,
+    
+    // Set to true to generate separate test database tables (prevents production conflicts)
+    USE_TEST_TABLES: true,
+    
+    // Prefix for test tables (only used if USE_TEST_TABLES is true)
+    TEST_TABLE_PREFIX: 'test_',
+    
+    // Set to true to skip section fetching entirely (courses only)
+    SKIP_SECTIONS: false,
+    
+    // Verbose logging for debugging
+    VERBOSE_LOGGING: true
+};
+
 const HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
     "Accept": "*/*",
@@ -9,21 +35,93 @@ const HEADERS = {
     "Sec-GPC": "1",
 }
 
-// Rate limiting configuration
-const RATE_LIMIT_DELAY = 100; // milliseconds between requests
-const BATCH_SIZE = 50; // process in batches
-const MAX_RETRIES = 3;
+// Rate limiting configuration - reduced for dev mode
+const RATE_LIMIT_DELAY = DEV_CONFIG.TEST_MODE ? 50 : 100; // milliseconds between requests
+const BATCH_SIZE = DEV_CONFIG.TEST_MODE ? 3 : 50; // process in batches
+const MAX_RETRIES = DEV_CONFIG.TEST_MODE ? 1 : 3;
+
+// Mock data for instant testing
+const MOCK_COURSE_DATA = [
+    {
+        courseId: "TEST001",
+        subject: { subjectCode: "COMP" },
+        courseDesignation: "SCI 101",
+        fullCourseDesignation: "COMP SCI 101",
+        minimumCredits: 3,
+        maximumCredits: 3,
+        title: "Introduction to Computer Science",
+        description: "Basic programming concepts and problem solving.",
+        enrollmentPrerequisites: "None",
+        generalEd: { code: "QR" },
+        ethnicStudies: null,
+        lettersAndScienceCredits: { code: "Y" },
+        breadths: [{ code: "P" }],
+        levels: [{ code: "Elementary" }]
+    },
+    {
+        courseId: "TEST002",
+        subject: { subjectCode: "MATH" },
+        courseDesignation: "MATH 221",
+        fullCourseDesignation: "MATH 221",
+        minimumCredits: 4,
+        maximumCredits: 4,
+        title: "Calculus and Analytic Geometry 1",
+        description: "Differential and integral calculus of functions of one variable.",
+        enrollmentPrerequisites: "High school algebra and trigonometry",
+        generalEd: { code: "QR" },
+        ethnicStudies: null,
+        lettersAndScienceCredits: { code: "Y" },
+        breadths: [{ code: "P" }],
+        levels: [{ code: "Elementary" }]
+    }
+];
+
+const MOCK_SECTION_DATA = [
+    {
+        enrollmentClassNumber: "12345",
+        courseId: "TEST001",
+        subjectCode: "COMP",
+        catalogNumber: "101",
+        sections: [{
+            instructors: [{ name: { first: "John", last: "Doe" } }],
+            instructionMode: "In Person",
+            enrollmentStatus: { capacity: 30, currentlyEnrolled: 25 }
+        }],
+        packageEnrollmentStatus: { status: "OPEN", availableSeats: 5, waitlistTotal: 0 },
+        classMeetings: [{
+            meetingDays: "MWF",
+            meetingTimeStart: 32400000, // 9:00 AM in milliseconds
+            meetingTimeEnd: 36000000,   // 10:00 AM in milliseconds
+            building: { buildingName: "Computer Sciences" },
+            room: "1240"
+        }],
+        isAsynchronous: false
+    }
+];
 
 // Utility function to delay execution
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function log(message, level = 'INFO') {
+    if (DEV_CONFIG.VERBOSE_LOGGING || level === 'ERROR' || level === 'SUCCESS') {
+        const timestamp = new Date().toISOString().substring(11, 23);
+        console.log(`[${timestamp}] [${level}] ${message}`);
+    }
+}
+
 // Utility function to make a request with retry logic
 async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
+    if (DEV_CONFIG.USE_MOCK_DATA) {
+        log(`Mock request for: ${url}`, 'DEBUG');
+        await delay(10); // Simulate network delay
+        return url.includes('enrollmentPackages') ? MOCK_SECTION_DATA : { hits: MOCK_COURSE_DATA };
+    }
+
     for (let i = 0; i <= retries; i++) {
         try {
-            console.log(`[REQUEST] Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
+            log(`Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
             const response = await fetch(url, options);
             
             if (!response.ok) {
@@ -33,25 +131,24 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
             const contentType = response.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
                 const text = await response.text();
-                console.error(`[ERROR] Non-JSON response for ${url}:`);
-                console.error(text.substring(0, 200) + '...');
+                log(`Non-JSON response for ${url}: ${text.substring(0, 200)}...`, 'ERROR');
                 throw new Error(`Expected JSON but got: ${contentType}`);
             }
             
             const data = await response.json();
-            console.log(`[SUCCESS] Got data from: ${url}`);
+            log(`Got data from: ${url}`, 'SUCCESS');
             return data;
             
         } catch (error) {
-            console.error(`[ERROR] Request failed (attempt ${i + 1}): ${error.message}`);
+            log(`Request failed (attempt ${i + 1}): ${error.message}`, 'ERROR');
             
             if (i === retries) {
-                console.error(`[FINAL ERROR] Max retries reached for: ${url}`);
+                log(`Max retries reached for: ${url}`, 'ERROR');
                 throw error;
             }
             
             const backoffDelay = RATE_LIMIT_DELAY * Math.pow(2, i);
-            console.log(`[RETRY] Waiting ${backoffDelay}ms before retry...`);
+            log(`Waiting ${backoffDelay}ms before retry...`);
             await delay(backoffDelay);
         }
     }
@@ -62,7 +159,7 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
     
     for (let i = 0; i < requests.length; i += batchSize) {
         const batch = requests.slice(i, i + batchSize);
-        console.log(`[BATCH] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(requests.length / batchSize)} (${batch.length} requests)`);
+        log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(requests.length / batchSize)} (${batch.length} requests)`);
         
         const batchPromises = batch.map(async (request, index) => {
             await delay(index * RATE_LIMIT_DELAY);
@@ -76,18 +173,18 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
                 if (result.status === 'fulfilled') {
                     results.push(result.value);
                 } else {
-                    console.error(`[BATCH ERROR] Request ${i + index} failed:`, result.reason.message);
+                    log(`Request ${i + index} failed: ${result.reason.message}`, 'ERROR');
                     results.push(null);
                 }
             });
             
             if (i + batchSize < requests.length) {
-                console.log(`[BATCH] Waiting ${RATE_LIMIT_DELAY * 2}ms between batches...`);
+                log(`Waiting ${RATE_LIMIT_DELAY * 2}ms between batches...`);
                 await delay(RATE_LIMIT_DELAY * 2);
             }
             
         } catch (error) {
-            console.error(`[BATCH ERROR] Batch failed:`, error);
+            log(`Batch failed: ${error}`, 'ERROR');
         }
     }
     
@@ -98,8 +195,11 @@ function formatSectionData(courseSections) {
     if (!courseSections || !Array.isArray(courseSections)) {
         return [];
     }
-    
-    return courseSections.map(section => {
+
+    const sections = [];
+    const meetings = [];
+
+    courseSections.forEach(section => {
         const primarySection = section.sections?.[0];
         
         const instructors = primarySection?.instructors?.map(instructor => 
@@ -119,8 +219,8 @@ function formatSectionData(courseSections) {
         const meetingTime = meeting ? 
             `${meeting.meetingDays} ${formatTime(meeting.meetingTimeStart)}-${formatTime(meeting.meetingTimeEnd)}` : 
             'Online';
-        
-        return {
+
+        sections.push({
             sectionId: section.enrollmentClassNumber,
             courseId: section.courseId,
             subjectCode: section.subjectCode,
@@ -131,12 +231,35 @@ function formatSectionData(courseSections) {
             waitlistTotal: section.packageEnrollmentStatus?.waitlistTotal || 0,
             capacity: primarySection?.enrollmentStatus?.capacity || 0,
             enrolled: primarySection?.enrollmentStatus?.currentlyEnrolled || 0,
-            meetingTime: meetingTime,
-            location: meeting ? `${meeting.building?.buildingName || ''} ${meeting.room || ''}`.trim() : 'Online',
             instructionMode: primarySection?.instructionMode || 'UNKNOWN',
             isAsynchronous: section.isAsynchronous || false
-        };
+        });
+
+        const classMeetings = section.classMeetings?.filter(meeting => 
+            meeting.meetingType != 'EXAM'
+        ) || [];
+        
+        classMeetings.forEach((meeting, index) => {
+            const meetingData = {
+                meetingType: meeting.meetingType,
+                sectionId: section.enrollmentClassNumber,
+                meetingNumber: index + 1,
+                meetingDays: meeting.meetingDays || null,
+                startTime: formatTime(meeting.meetingTimeStart),
+                endTime: formatTime(meeting.meetingTimeEnd),
+                buildingName: meeting.building?.buildingName || null,
+                room: meeting.room || null,
+                location: meeting.building ? 
+                    `${meeting.building.buildingName || ''} ${meeting.room || ''}`.trim() : null
+            };
+
+            
+        meetings.push(meetingData);
+        });
+
     });
+
+    return { sections, meetings };
 }
 
 function escapeCsvValue(value) {
@@ -149,7 +272,9 @@ function escapeCsvValue(value) {
 }
 
 function generateCSVFiles(courseData, sectionData) {
-    console.log('[START] Generating CSV files...');
+    const prefix = DEV_CONFIG.USE_TEST_TABLES ? DEV_CONFIG.TEST_TABLE_PREFIX : '';
+    
+    log('Generating CSV files...');
     
     // Generate courses CSV
     const coursesHeader = [
@@ -164,14 +289,14 @@ function generateCSVFiles(courseData, sectionData) {
         ...courseData.map(course => coursesHeader.map(field => escapeCsvValue(course[field])).join(','))
     ].join('\n');
     
-    fs.writeFileSync('uw_madison_courses.csv', coursesCsv);
-    console.log('[SUCCESS] Courses CSV written to uw_madison_courses.csv');
+    fs.writeFileSync(`${prefix}uw_madison_courses.csv`, coursesCsv);
+    log(`Courses CSV written to ${prefix}uw_madison_courses.csv`, 'SUCCESS');
     
     // Generate sections CSV
     const sectionsHeader = [
         'section_id', 'course_id', 'subject_code', 'catalog_number',
         'instructors', 'status', 'available_seats', 'waitlist_total',
-        'capacity', 'enrolled', 'meeting_time', 'location',
+        'capacity', 'enrolled',
         'instruction_mode', 'is_asynchronous'
     ];
     
@@ -180,22 +305,31 @@ function generateCSVFiles(courseData, sectionData) {
         ...sectionData.map(section => sectionsHeader.map(field => escapeCsvValue(section[field])).join(','))
     ].join('\n');
     
-    fs.writeFileSync('uw_madison_sections.csv', sectionsCsv);
-    console.log('[SUCCESS] Sections CSV written to uw_madison_sections.csv');
+    fs.writeFileSync(`${prefix}uw_madison_sections.csv`, sectionsCsv);
+    log(`Sections CSV written to ${prefix}uw_madison_sections.csv`, 'SUCCESS');
 }
 
-function generateSQLDump(courseData, sectionData) {
-    console.log('[START] Generating SQL dump...');
+function generateSQLDump(courseData, sectionData, meetingData) {
+    const tablePrefix = DEV_CONFIG.USE_TEST_TABLES ? DEV_CONFIG.TEST_TABLE_PREFIX : '';
+    const coursesTable = `${tablePrefix}courses`;
+    const sectionsTable = `${tablePrefix}sections`;
+    const instructorsTable = `${tablePrefix}section_instructors`;
+    const meetingsTable = `${tablePrefix}section_meetings`;
+    
+    log('Generating SQL dump...');
     
     let sqlDump = `-- UW-Madison Course and Section Data SQL Dump
 -- Generated on: ${new Date().toISOString()}
+-- Development Mode: ${DEV_CONFIG.TEST_MODE ? 'ON' : 'OFF'}
+-- Test Tables: ${DEV_CONFIG.USE_TEST_TABLES ? 'ON' : 'OFF'}
+-- Mock Data: ${DEV_CONFIG.USE_MOCK_DATA ? 'ON' : 'OFF'}
 
-DROP TABLE IF EXISTS section_instructors;
-DROP TABLE IF EXISTS sections;
-DROP TABLE IF EXISTS courses;
+DROP TABLE IF EXISTS ${instructorsTable};
+DROP TABLE IF EXISTS ${sectionsTable};
+DROP TABLE IF EXISTS ${coursesTable};
 
 -- Create courses table
-CREATE TABLE courses (
+CREATE TABLE ${coursesTable} (
     course_id VARCHAR(50),
     subject_code VARCHAR(10) NOT NULL,
     course_designation VARCHAR(20) NOT NULL,
@@ -219,7 +353,7 @@ CREATE TABLE courses (
 );
 
 -- Create sections table
-CREATE TABLE sections (
+CREATE TABLE ${sectionsTable} (
     section_id VARCHAR(50),
     course_id VARCHAR(50) NOT NULL,
     subject_code VARCHAR(10) NOT NULL,
@@ -229,24 +363,36 @@ CREATE TABLE sections (
     waitlist_total INT,
     capacity INT,
     enrolled INT,
-    meeting_time VARCHAR(100),
-    location VARCHAR(100),
     instruction_mode VARCHAR(50),
     is_asynchronous VARCHAR(5),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE section_instructors (
+CREATE TABLE ${instructorsTable} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     section_id VARCHAR(50) NOT NULL,
     instructor_name VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert course data (bulk insert)
-INSERT INTO courses (course_id, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
+CREATE TABLE ${meetingsTable} (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    section_id VARCHAR(50) NOT NULL,
+    meeting_type VARCHAR(50) NOT NULL,
+    meeting_number INT NOT NULL,
+    meeting_days VARCHAR(10) NOT NULL,
+    start_time VARCHAR(10) NOT NULL,
+    end_time VARCHAR(10) NOT NULL,
+    building_name VARCHAR(100) NOT NULL,
+    room VARCHAR(100) NOT NULL,
+    location VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-    // Generate course values in bulk
+-- Insert course data
+INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
+
+    // Generate course values
     const courseValues = courseData.map(course => {
         const values = [
             course.courseId,
@@ -275,130 +421,130 @@ INSERT INTO courses (course_id, subject_code, course_title, course_description, 
 
     sqlDump += courseValues + ';\n\n';
 
-    // Insert section data (bulk insert)
-    sqlDump += '-- Insert section data (bulk insert)\n';
-    sqlDump += 'INSERT INTO sections (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
+    // Insert section data
+    if (sectionData.length > 0) {
+        sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous) VALUES\n`;
 
-    // Generate section values in bulk
-    const sectionValues = sectionData.map(section => {
-        const values = [
-            section.sectionId,
-            section.courseId,
-            section.subjectCode,
-            section.catalogNumber,  
-            section.status,
-            section.availableSeats,
-            section.waitlistTotal,
-            section.capacity,
-            section.enrolled,
-            section.meetingTime,
-            section.location,
-            section.instructionMode,
-            section.isAsynchronous
-        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
-        
-        return `(${values.join(', ')})`;
-    });
-
-    // Split into chunks to avoid extremely long lines
-    const chunkSize = 500; // Number of rows per INSERT statement
-    for (let i = 0; i < sectionValues.length; i += chunkSize) {
-        const chunk = sectionValues.slice(i, i + chunkSize);
-        sqlDump += chunk.join(',\n') + ';\n';
-        
-        // Add another INSERT statement if there are more rows
-        if (i + chunkSize < sectionValues.length) {
-            sqlDump += '\nINSERT INTO sections (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, meeting_time, location, instruction_mode, is_asynchronous) VALUES\n';
-        }
-    }
-
-    const sectionInstructorValues = [];
-    sectionData.forEach(section => {
-        if (section.instructors && Array.isArray(section.instructors) && section.instructors.length > 0) {
-            section.instructors.forEach(instructor => {
-                if (instructor && instructor.trim() !== '') {
-                    const sectionId = section.sectionId === null || section.sectionId === undefined ? 'NULL' : `'${String(section.sectionId).replace(/'/g, "''")}'`;
-                    const instructorName = `'${String(instructor).replace(/'/g, "''")}'`;
-                    sectionInstructorValues.push(`(${sectionId}, ${instructorName})`);
-                }
-            });
-        }
-    });
-
-
-    if (sectionInstructorValues.length > 0) {
-        sqlDump += '\n-- Insert section instructor data (bulk insert)\n';
-        sqlDump += 'INSERT INTO section_instructors (section_id, instructor_name) VALUES\n';
-        
-        // Split instructor data into chunks as well
-        for (let i = 0; i < sectionInstructorValues.length; i += chunkSize) {
-            const chunk = sectionInstructorValues.slice(i, i + chunkSize);
-            sqlDump += chunk.join(',\n') + ';\n';
+        const sectionValues = sectionData.map(section => {
+            const values = [
+                section.sectionId,
+                section.courseId,
+                section.subjectCode,
+                section.catalogNumber,  
+                section.status,
+                section.availableSeats,
+                section.waitlistTotal,
+                section.capacity,
+                section.enrolled,
+                section.instructionMode,
+                section.isAsynchronous
+            ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
             
-            // Add another INSERT statement if there are more rows
-            if (i + chunkSize < sectionInstructorValues.length) {
-                sqlDump += '\nINSERT INTO section_instructors (section_id, instructor_name) VALUES\n';
+            return `(${values.join(', ')})`;
+        }).join(',\n');
+
+        sqlDump += sectionValues + ';\n\n';
+
+        // Insert instructor data
+        const sectionInstructorValues = [];
+        sectionData.forEach(section => {
+            if (section.instructors && Array.isArray(section.instructors) && section.instructors.length > 0) {
+                section.instructors.forEach(instructor => {
+                    if (instructor && instructor.trim() !== '') {
+                        const sectionId = section.sectionId === null || section.sectionId === undefined ? 'NULL' : `'${String(section.sectionId).replace(/'/g, "''")}'`;
+                        const instructorName = `'${String(instructor).replace(/'/g, "''")}'`;
+                        sectionInstructorValues.push(`(${sectionId}, ${instructorName})`);
+                    }
+                });
             }
+        });
+
+        if (sectionInstructorValues.length > 0) {
+            sqlDump += `-- Insert section instructor data\nINSERT INTO ${instructorsTable} (section_id, instructor_name) VALUES\n`;
+            sqlDump += sectionInstructorValues.join(',\n') + ';\n\n';
         }
-    } else {
-        sqlDump += '\n-- No instructor data to insert\n';
     }
 
-    sqlDump += '\n-- Create indexes for better performance\n';
-    sqlDump += 'CREATE INDEX idx_courses_subject_code ON courses(subject_code);\n';
-    sqlDump += 'CREATE INDEX idx_courses_level ON courses(level);\n';
-    sqlDump += 'CREATE INDEX idx_sections_course_id ON sections(course_id);\n';
-    sqlDump += 'CREATE INDEX idx_sections_subject_code ON sections(subject_code);\n';
-    sqlDump += 'CREATE INDEX idx_sections_status ON sections(status);\n';
-    sqlDump += 'CREATE INDEX idx_section_instructors_section_id ON section_instructors(section_id);\n';
-    sqlDump += 'CREATE INDEX idx_section_instructors_name ON section_instructors(instructor_name);\n';
+    // Add indexes
+    sqlDump += `-- Create indexes for better performance\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}courses_subject_code ON ${coursesTable}(subject_code);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}courses_level ON ${coursesTable}(level);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}sections_course_id ON ${sectionsTable}(course_id);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}sections_subject_code ON ${sectionsTable}(subject_code);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}sections_status ON ${sectionsTable}(status);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}section_instructors_section_id ON ${instructorsTable}(section_id);\n`;
+    sqlDump += `CREATE INDEX idx_${tablePrefix}section_instructors_name ON ${instructorsTable}(instructor_name);\n`;
 
-    fs.writeFileSync('uw_madison_courses.sql', sqlDump);
-    console.log('[SUCCESS] SQL dump written to uw_madison_courses.sql');
+    const filename = `${tablePrefix}uw_madison_courses.sql`;
+    fs.writeFileSync(filename, sqlDump);
+    log(`SQL dump written to ${filename}`, 'SUCCESS');
 }
 
 async function getAllCourseSearchAndEnrollData() {
+    const startTime = Date.now();
+    
     try {
-        console.log('[START] Fetching initial course search data...');
+        if (DEV_CONFIG.TEST_MODE) {
+            log(`🚀 DEVELOPMENT MODE ACTIVE 🚀`, 'SUCCESS');
+            log(`- Course limit: ${DEV_CONFIG.TEST_COURSE_LIMIT}`);
+            log(`- Mock data: ${DEV_CONFIG.USE_MOCK_DATA ? 'ON' : 'OFF'}`);
+            log(`- Test tables: ${DEV_CONFIG.USE_TEST_TABLES ? 'ON' : 'OFF'}`);
+            log(`- Skip sections: ${DEV_CONFIG.SKIP_SECTIONS ? 'ON' : 'OFF'}`);
+        }
         
-        const allCourseSearchAndEnrollData = await makeRequestWithRetry('https://public.enroll.wisc.edu/api/search/v1', {
-            headers: HEADERS,
-            method: 'POST',
-            body: JSON.stringify({
-                "selectedTerm": "1262",
-                "queryString": "*",
-                "filters": [
-                    {
-                        "has_child": {
-                            "type": "enrollmentPackage",
-                            "query": {
-                                "bool": {
-                                    "must": [
-                                        {
-                                            "match": {
-                                                "packageEnrollmentStatus.status": "OPEN WAITLISTED CLOSED"
+        log('Fetching initial course search data...');
+        
+        let allCourseSearchAndEnrollData;
+        
+        if (DEV_CONFIG.USE_MOCK_DATA) {
+            allCourseSearchAndEnrollData = { hits: MOCK_COURSE_DATA };
+        } else {
+            allCourseSearchAndEnrollData = await makeRequestWithRetry('https://public.enroll.wisc.edu/api/search/v1', {
+                headers: HEADERS,
+                method: 'POST',
+                body: JSON.stringify({
+                    "selectedTerm": "1262",
+                    "queryString": "*",
+                    "filters": [
+                        {
+                            "has_child": {
+                                "type": "enrollmentPackage",
+                                "query": {
+                                    "bool": {
+                                        "must": [
+                                            {
+                                                "match": {
+                                                    "packageEnrollmentStatus.status": "OPEN WAITLISTED CLOSED"
+                                                }
+                                            },
+                                            {
+                                                "match": {
+                                                    "published": true
+                                                }
                                             }
-                                        },
-                                        {
-                                            "match": {
-                                                "published": true
-                                            }
-                                        }
-                                    ]
+                                        ]
+                                    }
                                 }
                             }
                         }
-                    }
-                ],
-                "page": 1,
-                "pageSize": 10000,
-                "sortOrder": "SCORE"
-            })
-        });
+                    ],
+                    "page": 1,
+                    "pageSize": DEV_CONFIG.TEST_MODE ? DEV_CONFIG.TEST_COURSE_LIMIT : 10000,
+                    "sortOrder": "SCORE"
+                })
+            });
+        }
 
-        console.log(`[SUCCESS] Found ${allCourseSearchAndEnrollData.hits.length} courses`);
+        let coursesToProcess = allCourseSearchAndEnrollData.hits;
+        
+        // Limit courses in test mode
+        if (DEV_CONFIG.TEST_MODE && !DEV_CONFIG.USE_MOCK_DATA) {
+            coursesToProcess = coursesToProcess.slice(0, DEV_CONFIG.TEST_COURSE_LIMIT);
+        }
 
-        const courseData = allCourseSearchAndEnrollData.hits.map(course => ({
+        log(`Found ${coursesToProcess.length} courses to process`, 'SUCCESS');
+
+        const courseData = coursesToProcess.map(course => ({
             courseId: course.courseId,
             subjectCode: course.subject?.subjectCode,
             courseDesignation: course.courseDesignation,
@@ -420,55 +566,92 @@ async function getAllCourseSearchAndEnrollData() {
             level: course.levels?.[0]?.code,
         }));
 
-        console.log('[START] Fetching section data for all courses...');
-        
-        const sectionRequests = courseData.map((course) => {
-            return async () => {
-                const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1262/${course.subjectCode}/${course.courseId}`;
-                try {
-                    const data = await makeRequestWithRetry(url, {
-                        headers: HEADERS,
-                        method: 'GET',
-                    });
-                    return { course, sections: data };
-                } catch (error) {
-                    console.error(`[ERROR] Failed to fetch sections for ${course.subjectCode} ${course.courseId}:`, error.message);
-                    return { course, sections: null };
-                }
-            };
-        });
+        let allSectionData = [];
+        let allMeetingData = [];
 
-        const sectionResults = await processBatch(sectionRequests, BATCH_SIZE);
-        
-        const allSectionData = [];
-        let successCount = 0;
-        let errorCount = 0;
-
-        sectionResults.forEach(result => {
-            if (result && result.sections) {
-                successCount++;
-                const formattedSections = formatSectionData(result.sections);
-                allSectionData.push(...formattedSections);
+        if (!DEV_CONFIG.SKIP_SECTIONS) {
+            log('Fetching section data...');
+            
+            if (DEV_CONFIG.USE_MOCK_DATA) {
+                allSectionData = formatSectionData(MOCK_SECTION_DATA);
             } else {
-                errorCount++;
+                const sectionRequests = courseData.map((course) => {
+                    return async () => {
+                        const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1262/${course.subjectCode}/${course.courseId}`;
+                        try {
+                            const data = await makeRequestWithRetry(url, {
+                                headers: HEADERS,
+                                method: 'GET',
+                            });
+                            return { course, sections: data };
+                        } catch (error) {
+                            log(`Failed to fetch sections for ${course.subjectCode} ${course.courseId}: ${error.message}`, 'ERROR');
+                            return { course, sections: null };
+                        }
+                    };
+                });
+
+                const sectionResults = await processBatch(sectionRequests, BATCH_SIZE);
+                
+                let successCount = 0;
+                let errorCount = 0;
+
+                sectionResults.forEach(result => {
+                    if (result && result.sections) {
+                        successCount++;
+                        const { sections, meetings } = formatSectionData(result.sections);
+                        allSectionData.push(...sections);
+                        allMeetingData.push(...meetings);
+                    } else {
+                        errorCount++;
+                    }
+                });
+
+                log(`Successfully processed ${successCount} courses, ${errorCount} errors`, 'SUCCESS');
             }
-        });
+        } else {
+            log('Skipping section data (SKIP_SECTIONS = true)');
+        }
 
-        console.log(`[SUMMARY] Successfully processed ${successCount} courses, ${errorCount} errors`);
-        console.log(`[SUMMARY] Total sections found: ${allSectionData.length}`);
+        log(`Total sections found: ${allSectionData.length}`, 'SUCCESS');
 
-        // Generate both SQL and CSV files
-        generateSQLDump(courseData, allSectionData);
-        generateCSVFiles(courseData, allSectionData);
+        // Generate files
+        generateSQLDump(courseData, allSectionData, allMeetingData);
+        generateCSVFiles(courseData, allSectionData, allMeetingData);
 
-        console.log('[COMPLETE] Data export finished successfully!');
-
-
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+        log(`🎉 Data export completed in ${elapsed} seconds! 🎉`, 'SUCCESS');
+        
+        if (DEV_CONFIG.TEST_MODE) {
+            log('💡 To run full production mode, set TEST_MODE to false in DEV_CONFIG', 'SUCCESS');
+        }
         
     } catch (error) {
-        console.error('[FATAL ERROR] Error fetching course search and enroll data:', error);
-        console.error('Stack trace:', error.stack);
+        log(`FATAL ERROR: ${error}`, 'ERROR');
+        log(`Stack trace: ${error.stack}`, 'ERROR');
     }
 }
 
-await getAllCourseSearchAndEnrollData();
+// Quick development helpers
+function runQuickTest() {
+    console.log('🚀 Running quick test with mock data...');
+    const originalConfig = { ...DEV_CONFIG };
+    
+    // Override config for quickest possible test
+    DEV_CONFIG.USE_MOCK_DATA = true;
+    DEV_CONFIG.TEST_MODE = true;
+    DEV_CONFIG.USE_TEST_TABLES = true;
+    DEV_CONFIG.VERBOSE_LOGGING = true;
+    
+    return getAllCourseSearchAndEnrollData().finally(() => {
+        // Restore original config
+        Object.assign(DEV_CONFIG, originalConfig);
+    });
+}
+
+// Export for testing
+if (process.argv.includes('--quick-test')) {
+    runQuickTest();
+} else {
+    await getAllCourseSearchAndEnrollData();
+}
