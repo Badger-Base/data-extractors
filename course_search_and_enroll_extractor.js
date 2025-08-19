@@ -442,6 +442,16 @@ CREATE TABLE ${meetingsTable} (
     building_name VARCHAR(100),
     room VARCHAR(100),
     location VARCHAR(100),
+    monday_meeting_start INT,
+    monday_meeting_end INT,
+    tuesday_meeting_start INT,
+    tuesday_meeting_end INT,
+    wednesday_meeting_start INT,
+    wednesday_meeting_end INT,
+    thursday_meeting_start INT,
+    thursday_meeting_end INT,
+    friday_meeting_start INT,
+    friday_meeting_end INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -548,14 +558,24 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
                 formatValue(meeting.buildingName),
                 formatValue(meeting.meetingType),
                 formatValue(meeting.room),
-                formatValue(meeting.location)
+                formatValue(meeting.location),
+                formatValue(meeting.mondayMeetingStart),
+                formatValue(meeting.mondayMeetingEnd),
+                formatValue(meeting.tuesdayMeetingStart),
+                formatValue(meeting.tuesdayMeetingEnd),
+                formatValue(meeting.wednesdayMeetingStart),
+                formatValue(meeting.wednesdayMeetingEnd),
+                formatValue(meeting.thursdayMeetingStart),
+                formatValue(meeting.thursdayMeetingEnd),
+                formatValue(meeting.fridayMeetingStart),
+                formatValue(meeting.fridayMeetingEnd)
             ];
             
             return `(${values.join(', ')})`;
         });
 
         sqlDump += '\n-- Insert section meeting data (bulk insert)\n';
-        sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location) VALUES\n';
+        sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
         
         // Split meeting data into chunks as well
         for (let i = 0; i < meetingValues.length; i += chunkSize) {
@@ -564,7 +584,7 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
             
             // Add another INSERT statement if there are more rows
             if (i + chunkSize < meetingValues.length) {
-                sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location) VALUES\n';
+                sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
             }
         }
     } else {
