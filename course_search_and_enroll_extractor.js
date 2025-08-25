@@ -5,7 +5,7 @@ import fs from 'fs';
 // ====================================
 const DEV_CONFIG = {
     // Set to true for rapid testing - only fetches first few courses
-    TEST_MODE: true,
+    TEST_MODE: false,
     
     // Number of courses to fetch in test mode (1-10 recommended for quick testing)
     TEST_COURSE_LIMIT: 50,
@@ -14,10 +14,10 @@ const DEV_CONFIG = {
     USE_MOCK_DATA: false,
     
     // Set to true to generate separate test database tables (prevents production conflicts)
-    USE_TEST_TABLES: true,
+    USE_TEST_TABLES: false,
     
     // Prefix for test tables (only used if USE_TEST_TABLES is true)
-    TEST_TABLE_PREFIX: 'test_',
+    TEST_TABLE_PREFIX: '',
     
     // Set to true to skip section fetching entirely (courses only)
     SKIP_SECTIONS: false,
@@ -541,55 +541,55 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
 
     // Insert meeting data
 
-    if (meetingData.length > 0) {
-        const meetingValues = meetingData.map(meeting => {
-            const formatValue = (val, isNumeric = false) => {
-                if (val === null || val === undefined) return 'NULL';
-                if (isNumeric) return String(val);
-                return `'${String(val).replace(/'/g, "''")}'`;
-            };
+    // In the generateSQLDump function, replace the meeting data insertion part with:
 
-            const values = [
-                formatValue(meeting.sectionId),
-                formatValue(meeting.meetingNumber, true),
-                formatValue(meeting.meetingDays),
-                formatValue(meeting.startTime),
-                formatValue(meeting.endTime),
-                formatValue(meeting.buildingName),
-                formatValue(meeting.meetingType),
-                formatValue(meeting.room),
-                formatValue(meeting.location),
-                formatValue(meeting.mondayMeetingStart),
-                formatValue(meeting.mondayMeetingEnd),
-                formatValue(meeting.tuesdayMeetingStart),
-                formatValue(meeting.tuesdayMeetingEnd),
-                formatValue(meeting.wednesdayMeetingStart),
-                formatValue(meeting.wednesdayMeetingEnd),
-                formatValue(meeting.thursdayMeetingStart),
-                formatValue(meeting.thursdayMeetingEnd),
-                formatValue(meeting.fridayMeetingStart),
-                formatValue(meeting.fridayMeetingEnd)
-            ];
-            
-            return `(${values.join(', ')})`;
-        });
+if (meetingData.length > 0) {
+    sqlDump += '\n-- Insert section meeting data\n';
+    sqlDump += 'INSERT INTO test_section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
+    
+    const meetingValues = meetingData.map(meeting => {
+        const formatValue = (val, isNumeric = false) => {
+            if (val === null || val === undefined) return 'NULL';
+            if (isNumeric) return String(val);
+            return `'${String(val).replace(/'/g, "''")}'`;
+        };
 
-        sqlDump += '\n-- Insert section meeting data (bulk insert)\n';
-        sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
+        const values = [
+            formatValue(meeting.sectionId),
+            formatValue(meeting.meetingNumber, true),
+            formatValue(meeting.meetingDays),
+            formatValue(meeting.startTime),
+            formatValue(meeting.endTime),
+            formatValue(meeting.buildingName),
+            formatValue(meeting.meetingType),
+            formatValue(meeting.room),
+            formatValue(meeting.location),
+            formatValue(meeting.mondayMeetingStart, true),
+            formatValue(meeting.mondayMeetingEnd, true),
+            formatValue(meeting.tuesdayMeetingStart, true),
+            formatValue(meeting.tuesdayMeetingEnd, true),
+            formatValue(meeting.wednesdayMeetingStart, true),
+            formatValue(meeting.wednesdayMeetingEnd, true),
+            formatValue(meeting.thursdayMeetingStart, true),
+            formatValue(meeting.thursdayMeetingEnd, true),
+            formatValue(meeting.fridayMeetingStart, true),
+            formatValue(meeting.fridayMeetingEnd, true)
+        ];
         
-        // Split meeting data into chunks as well
-        for (let i = 0; i < meetingValues.length; i += chunkSize) {
-            const chunk = meetingValues.slice(i, i + chunkSize);
-            sqlDump += chunk.join(',\n') + ';\n';
-            
-            // Add another INSERT statement if there are more rows
-            if (i + chunkSize < meetingValues.length) {
-                sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
-            }
+        return `(${values.join(', ')})`;
+    });
+
+    // Split into chunks to avoid too-long SQL statements
+    const chunkSize = 100;
+    for (let i = 0; i < meetingValues.length; i += chunkSize) {
+        const chunk = meetingValues.slice(i, i + chunkSize);
+        sqlDump += chunk.join(',\n') + ';\n';
+        
+        if (i + chunkSize < meetingValues.length) {
+            sqlDump += '\nINSERT INTO test_section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
         }
-    } else {
-        sqlDump += '\n-- No meeting data to insert\n';
     }
+}
 
     // Add indexes
     sqlDump += `-- Create indexes for better performance\n`;
