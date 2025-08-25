@@ -193,6 +193,34 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
     return results;
 }
 
+// Helper function to find the smallest enrollment capacity among all sections
+function getSmallestEnrollmentData(sections) {
+    if (!sections || !Array.isArray(sections) || sections.length === 0) {
+        return null;
+    }
+    
+    // Filter sections that have enrollment data
+    const sectionsWithEnrollment = sections.filter(section => 
+        section.enrollmentStatus && 
+        section.enrollmentStatus.capacity !== undefined && 
+        section.enrollmentStatus.capacity > 0
+    );
+    
+    if (sectionsWithEnrollment.length === 0) {
+        return null;
+    }
+    
+    // Find the section with the smallest capacity
+    const smallestSection = sectionsWithEnrollment.reduce((smallest, current) => {
+        if (!smallest || current.enrollmentStatus.capacity < smallest.enrollmentStatus.capacity) {
+            return current;
+        }
+        return smallest;
+    }, null);
+    
+    return smallestSection ? smallestSection.enrollmentStatus : null;
+}
+
 function formatSectionData(courseSections) {
     if (!courseSections || !Array.isArray(courseSections)) {
         return [];
@@ -232,6 +260,10 @@ function formatSectionData(courseSections) {
             `${meeting.meetingDays} ${formatTime(meeting.meetingTimeStart)}-${formatTime(meeting.meetingTimeEnd)}` : 
             'Online';
 
+        // Use the smallest enrollment data instead of just the primary section
+        const smallestEnrollment = getSmallestEnrollmentData(section.sections);
+        const enrollmentToUse = smallestEnrollment || primarySection?.enrollmentStatus || {};
+
         sections.push({
             sectionId: section.enrollmentClassNumber,
             courseId: section.courseId,
@@ -241,8 +273,8 @@ function formatSectionData(courseSections) {
             status: section.packageEnrollmentStatus?.status || 'UNKNOWN',
             availableSeats: section.packageEnrollmentStatus?.availableSeats || 0,
             waitlistTotal: section.packageEnrollmentStatus?.waitlistTotal || 0,
-            capacity: primarySection?.enrollmentStatus?.capacity || 0,
-            enrolled: primarySection?.enrollmentStatus?.currentlyEnrolled || 0,
+            capacity: enrollmentToUse?.capacity || 0,
+            enrolled: enrollmentToUse?.currentlyEnrolled || 0,
             instructionMode: primarySection?.instructionMode || 'UNKNOWN',
             isAsynchronous: section.isAsynchronous || false
         });
@@ -545,7 +577,7 @@ INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_descr
 
 if (meetingData.length > 0) {
     sqlDump += '\n-- Insert section meeting data\n';
-    sqlDump += 'INSERT INTO test_section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
+    sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
     
     const meetingValues = meetingData.map(meeting => {
         const formatValue = (val, isNumeric = false) => {
@@ -586,7 +618,7 @@ if (meetingData.length > 0) {
         sqlDump += chunk.join(',\n') + ';\n';
         
         if (i + chunkSize < meetingValues.length) {
-            sqlDump += '\nINSERT INTO test_section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
+            sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
         }
     }
 }
