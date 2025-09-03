@@ -1,12 +1,11 @@
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 
 // ====================================
 // DEVELOPMENT CONFIGURATION
 // ====================================
 const DEV_CONFIG = {
     // Set to true for rapid testing - only fetches first few courses
-    TEST_MODE: false,
+    TEST_MODE: true,
     
     // Number of courses to fetch in test mode (1-10 recommended for quick testing)
     TEST_COURSE_LIMIT: 50,
@@ -15,10 +14,10 @@ const DEV_CONFIG = {
     USE_MOCK_DATA: false,
     
     // Set to true to generate separate test database tables (prevents production conflicts)
-    USE_TEST_TABLES: false,
+    USE_TEST_TABLES: true,
     
     // Prefix for test tables (only used if USE_TEST_TABLES is true)
-    TEST_TABLE_PREFIX: '',
+    TEST_TABLE_PREFIX: 'test_',
     
     // Set to true to skip section fetching entirely (courses only)
     SKIP_SECTIONS: false,
@@ -222,7 +221,7 @@ function getSmallestEnrollmentData(sections) {
     return smallestSection ? smallestSection.enrollmentStatus : null;
 }
 
-function formatSectionData(courseSections, courseUUID) {
+function formatSectionData(courseSections) {
     if (!courseSections || !Array.isArray(courseSections)) {
         return [];
     }
@@ -231,7 +230,6 @@ function formatSectionData(courseSections, courseUUID) {
     const meetings = [];
 
     courseSections.forEach(section => {
-        const uniqueSectionId = uuidv4();
         const primarySection = section.sections?.[0];
         
         const instructors = primarySection?.instructors?.map(instructor => 
@@ -267,8 +265,6 @@ function formatSectionData(courseSections, courseUUID) {
         const enrollmentToUse = smallestEnrollment || primarySection?.enrollmentStatus || {};
 
         sections.push({
-            uniqueSectionId: uniqueSectionId,
-            courseUUID: courseUUID,
             sectionId: section.enrollmentClassNumber,
             courseId: section.courseId,
             subjectCode: section.subjectCode,
@@ -294,7 +290,6 @@ function formatSectionData(courseSections, courseUUID) {
             const meetingData = {
                 meetingType: nestedSection.type,
                 meetingNumber: firstClassMeeting.meetingOrExamNumber,
-                uniqueSectionId: uniqueSectionId,
                 sectionId: section.enrollmentClassNumber,
                 meetingDays: firstClassMeeting.meetingDays || null,
                 startTime: formatTime(firstClassMeeting.meetingTimeStart),
@@ -428,7 +423,6 @@ CREATE TABLE ${coursesTable} (
     subject_code VARCHAR(10) NOT NULL,
     course_designation VARCHAR(20) NOT NULL,
     course_title VARCHAR(100),
-    catalog_number INT, 
     course_description TEXT,
     enrollment_prerequisites TEXT,
     letters_and_science_credits VARCHAR(1),
@@ -476,7 +470,6 @@ CREATE TABLE ${instructorsTable} (
 CREATE TABLE ${meetingsTable} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     section_id VARCHAR(50) NOT NULL,
-    unique_section_id VARCHAR(50) NOT NULL,
     meeting_type VARCHAR(50) NOT NULL,
     meeting_number INT,
     meeting_days VARCHAR(10),
@@ -499,7 +492,7 @@ CREATE TABLE ${meetingsTable} (
 );
 
 -- Insert course data
-INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level, catalog_number) VALUES\n`;
+INSERT INTO ${coursesTable} (course_id, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level) VALUES\n`;
 
     const chunkSize = 500; // Number of rows per INSERT statement
 
@@ -513,28 +506,26 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
         };
     
         const values = [
-            formatValue(course.courseId),                    // string
-            formatValue(course.courseUUID),                  // string  
-            formatValue(course.subjectCode),                 // string
-            formatValue(course.title),                       // string
-            formatValue(course.description),                 // string
-            formatValue(course.enrollmentPrerequisites),     // string
-            formatValue(course.lettersAndScienceCredits),    // string
-            formatValue(course.courseDesignation),           // string
-            formatValue(course.fullCourseDesignation),       // string
-            formatValue(course.minimumCredits, true),        // numeric - no quotes
-            formatValue(course.maximumCredits, true),        // numeric - no quotes
-            formatValue(course.generalEducation),            // string
-            formatValue(course.ethnicStudies),               // string
-            formatValue(course.socialScience),               // string
-            formatValue(course.humanities),                  // string
-            formatValue(course.biologicalScience),           // string
-            formatValue(course.physicalScience),             // string
-            formatValue(course.naturalScience),              // string
-            formatValue(course.literature),                  // string
-            formatValue(course.level),                       // string
-            formatValue(course.catalogNumber, true)          // numeric - no quotes
-        ];
+            course.courseId,
+            course.subjectCode,
+            course.title,
+            course.description,
+            course.enrollmentPrerequisites,
+            course.lettersAndScienceCredits,
+            course.courseDesignation,
+            course.fullCourseDesignation,
+            course.minimumCredits,
+            course.maximumCredits,
+            course.generalEducation,
+            course.ethnicStudies,
+            course.socialScience,
+            course.humanities,
+            course.biologicalScience,
+            course.physicalScience,
+            course.naturalScience,
+            course.literature,
+            course.level
+        ].map(val => val === null || val === undefined ? 'NULL' : `'${String(val).replace(/'/g, "''")}'`);
         
         return `(${values.join(', ')})`;
     }).join(',\n');
@@ -543,7 +534,7 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
 
     // Insert section data
     if (sectionData.length > 0) {
-        sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, unique_section_id, course_id, course_uuid, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous) VALUES\n`;
+        sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, course_id, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous) VALUES\n`;
 
         const sectionValues = sectionData.map(section => {
             const formatValue = (val, isNumeric = false) => {
@@ -554,9 +545,7 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
         
             const values = [
                 formatValue(section.sectionId),           // string
-                formatValue(section.uniqueSectionId),     // string
                 formatValue(section.courseId),            // string  
-                formatValue(section.courseUUID),          // string
                 formatValue(section.subjectCode),         // string
                 formatValue(section.catalogNumber),       // string
                 formatValue(section.status),              // string
@@ -580,16 +569,15 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
                 section.instructors.forEach(instructor => {
                     if (instructor && instructor.trim() !== '') {
                         const sectionId = section.sectionId === null || section.sectionId === undefined ? 'NULL' : `'${String(section.sectionId).replace(/'/g, "''")}'`;
-                        const uniqueSectionId = section.uniqueSectionId === null || section.uniqueSectionId === undefined ? 'NULL' : `'${String(section.uniqueSectionId).replace(/'/g, "''")}'`;
                         const instructorName = `'${String(instructor).replace(/'/g, "''")}'`;
-                        sectionInstructorValues.push(`(${sectionId}, ${uniqueSectionId}, ${instructorName})`);
+                        sectionInstructorValues.push(`(${sectionId}, ${instructorName})`);
                     }
                 });
             }
         });
 
         if (sectionInstructorValues.length > 0) {
-            sqlDump += `-- Insert section instructor data\nINSERT INTO ${instructorsTable} (section_id, unique_section_id, instructor_name) VALUES\n`;
+            sqlDump += `-- Insert section instructor data\nINSERT INTO ${instructorsTable} (section_id, instructor_name) VALUES\n`;
             sqlDump += sectionInstructorValues.join(',\n') + ';\n\n';
         }
     }
@@ -599,8 +587,8 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
     // In the generateSQLDump function, replace the meeting data insertion part with:
 
 if (meetingData.length > 0) {
-    sqlDump += `\n-- Insert ${meetingsTable} data\n`;
-    sqlDump += `INSERT INTO ${meetingsTable} (section_id, unique_section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
+    sqlDump += '\n-- Insert section meeting data\n';
+    sqlDump += 'INSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
     
     const meetingValues = meetingData.map(meeting => {
         const formatValue = (val, isNumeric = false) => {
@@ -611,7 +599,6 @@ if (meetingData.length > 0) {
 
         const values = [
             formatValue(meeting.sectionId),
-            formatValue(meeting.uniqueSectionId),
             formatValue(meeting.meetingNumber, true),
             formatValue(meeting.meetingDays),
             formatValue(meeting.startTime),
@@ -642,7 +629,7 @@ if (meetingData.length > 0) {
         sqlDump += chunk.join(',\n') + ';\n';
         
         if (i + chunkSize < meetingValues.length) {
-            sqlDump += `\nINSERT INTO ${meetingsTable} (section_id, unique_section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
+            sqlDump += '\nINSERT INTO section_meetings (section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n';
         }
     }
 }
@@ -767,9 +754,6 @@ async function getAllCourseSearchAndEnrollData() {
                                 headers: HEADERS,
                                 method: 'GET',
                             });
-
-                            
-
                             return { course, sections: data };
                         } catch (error) {
                             log(`Failed to fetch sections for ${course.subjectCode} ${course.courseId}: ${error.message}`, 'ERROR');
@@ -786,7 +770,7 @@ async function getAllCourseSearchAndEnrollData() {
                 sectionResults.forEach(result => {
                     if (result && result.sections) {
                         successCount++;
-                        const { sections, meetings } = formatSectionData(result.sections, result.course.courseUUID);
+                        const { sections, meetings } = formatSectionData(result.sections);
                         allSectionData.push(...sections);
                         allMeetingData.push(...meetings);
                     } else {
