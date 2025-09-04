@@ -1,4 +1,19 @@
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
+
+// ====================================
+// UW-MADISON COURSE & ENROLLMENT DATA EXTRACTOR
+// ====================================
+// This script extracts course and section data from the UW-Madison enrollment API.
+// 
+// NEW FEATURE: ENROLLMENT REQUIREMENTS EXTRACTION
+// This script now extracts enrollment requirements from the API response including:
+// - Catalog requirements (e.g., "Consent of instructor", "Sophomore standing")
+// - Class association requirements (course-specific requirements)
+// - All enrollment requirements combined
+//
+// The requirements are saved to both CSV and SQL outputs as three new fields:
+// - catalog_requirements, class_association_requirements, all_enrollment_requirements
 
 // ====================================
 // DEVELOPMENT CONFIGURATION
@@ -223,11 +238,13 @@ function getSmallestEnrollmentData(sections) {
 
 function formatSectionData(courseSections) {
     if (!courseSections || !Array.isArray(courseSections)) {
-        return [];
+        return { sections: [], meetings: [], enrollmentRequirements: {} };
     }
 
     const sections = [];
     const meetings = [];
+    // ENROLLMENT REQUIREMENTS EXTRACTION: Collect enrollment requirement data from API response
+    const enrollmentRequirements = {};
 
     courseSections.forEach(section => {
         const primarySection = section.sections?.[0];
@@ -278,6 +295,20 @@ function formatSectionData(courseSections) {
             instructionMode: primarySection?.instructionMode || 'UNKNOWN',
             isAsynchronous: section.isAsynchronous || false
         });
+
+        // ENROLLMENT REQUIREMENTS EXTRACTION: Parse enrollmentRequirementGroups from API response
+        // This extracts requirement descriptions like "Consent of instructor", "Sophomore standing", etc.
+        const courseKey = `${section.subjectCode}-${section.courseId}`;
+        if (section.enrollmentRequirementGroups && !enrollmentRequirements[courseKey]) {
+            const catalogRequirements = section.enrollmentRequirementGroups.catalogRequirementGroups?.map(req => req.description) || [];
+            const classAssociationRequirements = section.enrollmentRequirementGroups.classAssociationRequirementGroups?.map(req => req.description) || [];
+            
+            enrollmentRequirements[courseKey] = {
+                catalogRequirements: catalogRequirements,
+                classAssociationRequirements: classAssociationRequirements,
+                allRequirements: [...catalogRequirements, ...classAssociationRequirements]
+            };
+        }
 
         section.sections?.forEach( nestedSection => {
             
@@ -346,7 +377,8 @@ function formatSectionData(courseSections) {
 
     });
 
-    return { sections, meetings };
+    // ENROLLMENT REQUIREMENTS EXTRACTION: Return enrollment requirements along with sections and meetings
+    return { sections, meetings, enrollmentRequirements };
 }
 
 function escapeCsvValue(value) {
@@ -364,16 +396,38 @@ function generateCSVFiles(courseData, sectionData) {
     log('Generating CSV files...');
     
     // Generate courses CSV
+    // ENROLLMENT REQUIREMENTS EXTRACTION: Added three new CSV columns for enrollment requirements
     const coursesHeader = [
         'course_id', 'subject_code', 'course_designation', 'full_course_designation',
         'minimum_credits', 'maximum_credits', 'general_education', 'ethnic_studies',
         'social_science', 'humanities', 'biological_science', 'physical_science',
-        'natural_science', 'literature', 'level'
+        'natural_science', 'literature', 'level', 'catalog_requirements', 
+        'class_association_requirements', 'all_enrollment_requirements'
     ];
     
     const coursesCsv = [
         coursesHeader.join(','),
-        ...courseData.map(course => coursesHeader.map(field => escapeCsvValue(course[field])).join(','))
+        ...courseData.map(course => [
+            course.courseId,
+            course.subjectCode,
+            course.courseDesignation,
+            course.fullCourseDesignation,
+            course.minimumCredits,
+            course.maximumCredits,
+            course.generalEducation,
+            course.ethnicStudies,
+            course.socialScience,
+            course.humanities,
+            course.biologicalScience,
+            course.physicalScience,
+            course.naturalScience,
+            course.literature,
+            course.level,
+            // ENROLLMENT REQUIREMENTS EXTRACTION: Include the three new enrollment requirement fields
+            course.catalogRequirements,
+            course.classAssociationRequirements,
+            course.allEnrollmentRequirements
+        ].map(field => escapeCsvValue(field)).join(','))
     ].join('\n');
     
     fs.writeFileSync(`${prefix}uw_madison_courses.csv`, coursesCsv);
@@ -744,7 +798,16 @@ async function getAllCourseSearchAndEnrollData() {
             log('Fetching section data...');
             
             if (DEV_CONFIG.USE_MOCK_DATA) {
-                allSectionData = formatSectionData(MOCK_SECTION_DATA);
+                const { sections, meetings, enrollmentRequirements } = formatSectionData(MOCK_SECTION_DATA);
+                allSectionData = sections;
+                allMeetingData = meetings;
+                
+                // ENROLLMENT REQUIREMENTS EXTRACTION: For mock data, set empty enrollment requirements
+                courseData.forEach(course => {
+                    course.catalogRequirements = null;
+                    course.classAssociationRequirements = null;
+                    course.allEnrollmentRequirements = null;
+                });
             } else {
                 const sectionRequests = courseData.map((course) => {
                     return async () => {
@@ -766,15 +829,37 @@ async function getAllCourseSearchAndEnrollData() {
                 
                 let successCount = 0;
                 let errorCount = 0;
+                // ENROLLMENT REQUIREMENTS EXTRACTION: Collect all enrollment requirements from API responses
+                const allEnrollmentRequirements = {};
 
                 sectionResults.forEach(result => {
                     if (result && result.sections) {
                         successCount++;
-                        const { sections, meetings } = formatSectionData(result.sections);
+                        const { sections, meetings, enrollmentRequirements } = formatSectionData(result.sections);
                         allSectionData.push(...sections);
                         allMeetingData.push(...meetings);
+                        
+                        // ENROLLMENT REQUIREMENTS EXTRACTION: Merge enrollment requirements from this batch
+                        Object.assign(allEnrollmentRequirements, enrollmentRequirements);
                     } else {
                         errorCount++;
+                    }
+                });
+
+                // ENROLLMENT REQUIREMENTS EXTRACTION: Add enrollment requirements to courseData
+                // This adds three new fields: catalogRequirements, classAssociationRequirements, allEnrollmentRequirements
+                courseData.forEach(course => {
+                    const courseKey = `${course.subjectCode}-${course.courseId}`;
+                    const requirements = allEnrollmentRequirements[courseKey];
+                    
+                    if (requirements) {
+                        course.catalogRequirements = requirements.catalogRequirements.join('; ') || null;
+                        course.classAssociationRequirements = requirements.classAssociationRequirements.join('; ') || null;
+                        course.allEnrollmentRequirements = requirements.allRequirements.join('; ') || null;
+                    } else {
+                        course.catalogRequirements = null;
+                        course.classAssociationRequirements = null;
+                        course.allEnrollmentRequirements = null;
                     }
                 });
 
