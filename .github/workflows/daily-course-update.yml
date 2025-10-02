@@ -24,7 +24,7 @@ jobs:
       run: npm install
         
     - name: Run course search and enroll extractor
-      run: node course_search_and_enroll_extractor.js
+      run: node src/extractors/madgrades_extractor.js
       
     - name: Run database dumps
-      run: node run_dumps.js uw_madison_courses.sql
+      run: node src/utils/run_dumps.js data/sql/uw_madison_courses.sql
