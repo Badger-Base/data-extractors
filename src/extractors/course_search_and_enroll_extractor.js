@@ -380,8 +380,8 @@ function generateCSVFiles(courseData, sectionData) {
         coursesHeader.join(','),
         ...courseData.map(course => coursesHeader.map(field => escapeCsvValue(course[field])).join(','))
     ].join('\n');
-    
-    fs.writeFileSync(`${prefix}uw_madison_courses.csv`, coursesCsv);
+        
+    fs.writeFileSync(`data/csv/${prefix}uw_madison_courses.csv`, coursesCsv);
     log(`Courses CSV written to ${prefix}uw_madison_courses.csv`, 'SUCCESS');
     
     // Generate sections CSV
@@ -397,7 +397,7 @@ function generateCSVFiles(courseData, sectionData) {
         ...sectionData.map(section => sectionsHeader.map(field => escapeCsvValue(section[field])).join(','))
     ].join('\n');
     
-    fs.writeFileSync(`${prefix}uw_madison_sections.csv`, sectionsCsv);
+    fs.writeFileSync(`data/csv/${prefix}uw_madison_sections.csv`, sectionsCsv);
     log(`Sections CSV written to ${prefix}uw_madison_sections.csv`, 'SUCCESS');
 }
 
@@ -657,7 +657,7 @@ if (meetingData.length > 0) {
     sqlDump += `CREATE INDEX idx_${tablePrefix}section_instructors_section_id ON ${instructorsTable}(section_id);\n`;
     sqlDump += `CREATE INDEX idx_${tablePrefix}section_instructors_name ON ${instructorsTable}(instructor_name);\n`;
 
-    const filename = `${tablePrefix}uw_madison_courses.sql`;
+    const filename = `data/sql/${tablePrefix}uw_madison_courses.sql`;
     fs.writeFileSync(filename, sqlDump);
     log(`SQL dump written to ${filename}`, 'SUCCESS');
 }
