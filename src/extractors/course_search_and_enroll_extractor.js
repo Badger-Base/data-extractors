@@ -685,7 +685,7 @@ async function getAllCourseSearchAndEnrollData() {
                 headers: HEADERS,
                 method: 'POST',
                 body: JSON.stringify({
-                    "selectedTerm": "1262",
+                    "selectedTerm": "1264",
                     "queryString": "*",
                     "filters": [
                         {
