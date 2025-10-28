@@ -761,7 +761,7 @@ async function getAllCourseSearchAndEnrollData() {
             } else {
                 const sectionRequests = courseData.map((course) => {
                     return async () => {
-                        const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1262/${course.subjectCode}/${course.courseId}`;
+                        const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/${course.subjectCode}/${course.courseId}`;
                         try {
                             const data = await makeRequestWithRetry(url, {
                                 headers: HEADERS,
