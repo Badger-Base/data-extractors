@@ -24,7 +24,7 @@ jobs:
       run: npm install
         
     - name: Run course search and enroll extractor
-      run: node src/extractors/madgrades_extractor.js
+      run: node src/extractors/course_search_and_enroll_extractor.js
       
     - name: Run database dumps
       env:
