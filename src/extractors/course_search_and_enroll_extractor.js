@@ -222,13 +222,22 @@ function getSmallestEnrollmentData(sections) {
     return smallestSection ? smallestSection.enrollmentStatus : null;
 }
 
-function formatSectionData(courseSections, courseUUID) {
+function formatSectionData(courseSections, courseUUID, coursePrerequisites) {
     if (!courseSections || !Array.isArray(courseSections)) {
         return [];
     }
 
     const sections = [];
     const meetings = [];
+
+    // Normalize course prerequisites for comparison (trim, lowercase, remove common variations)
+    const normalizePrereq = (prereq) => {
+        if (!prereq) return '';
+        return prereq.trim().toLowerCase()
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .replace(/^none$/i, ''); // Treat "None" as empty
+    };
+    const normalizedCoursePrereq = normalizePrereq(coursePrerequisites);
 
     courseSections.forEach(section => {
         const uniqueSectionId = uuidv4();
@@ -266,6 +275,33 @@ function formatSectionData(courseSections, courseUUID) {
         const smallestEnrollment = getSmallestEnrollmentData(section.sections);
         const enrollmentToUse = smallestEnrollment || primarySection?.enrollmentStatus || {};
 
+        // Extract section-level requisites from enrollmentRequirementGroups
+        const sectionRequisites = [];
+        
+        // Only include catalogRequirementGroups if they differ from course-level prerequisites
+        if (section.enrollmentRequirementGroups?.catalogRequirementGroups) {
+            section.enrollmentRequirementGroups.catalogRequirementGroups.forEach(group => {
+                if (group.description) {
+                    const normalizedGroupDesc = normalizePrereq(group.description);
+                    // Only add if it's different from course prerequisites
+                    if (normalizedGroupDesc !== normalizedCoursePrereq && normalizedGroupDesc !== '') {
+                        sectionRequisites.push(group.description);
+                    }
+                }
+            });
+        }
+        
+        // Always include classAssociationRequirementGroups (section-specific requirements)
+        if (section.enrollmentRequirementGroups?.classAssociationRequirementGroups) {
+            section.enrollmentRequirementGroups.classAssociationRequirementGroups.forEach(group => {
+                if (group.description) {
+                    sectionRequisites.push(group.description);
+                }
+            });
+        }
+        
+        const sectionRequisitesText = sectionRequisites.length > 0 ? sectionRequisites.join('; ') : null;
+
         sections.push({
             uniqueSectionId: uniqueSectionId,
             courseUUID: courseUUID,
@@ -280,7 +316,8 @@ function formatSectionData(courseSections, courseUUID) {
             capacity: enrollmentToUse?.capacity || 0,
             enrolled: enrollmentToUse?.currentlyEnrolled || 0,
             instructionMode: primarySection?.instructionMode || 'UNKNOWN',
-            isAsynchronous: section.isAsynchronous || false
+            isAsynchronous: section.isAsynchronous || false,
+            sectionRequisites: sectionRequisitesText
         });
 
         section.sections?.forEach( nestedSection => {
@@ -363,7 +400,7 @@ function escapeCsvValue(value) {
     return str;
 }
 
-function generateCSVFiles(courseData, sectionData) {
+function generateCSVFiles(courseData, sectionData, subjectData) {
     const prefix = DEV_CONFIG.USE_TEST_TABLES ? DEV_CONFIG.TEST_TABLE_PREFIX : '';
     
     log('Generating CSV files...');
@@ -373,7 +410,10 @@ function generateCSVFiles(courseData, sectionData) {
         'course_id', 'subject_code', 'course_designation', 'full_course_designation',
         'minimum_credits', 'maximum_credits', 'general_education', 'ethnic_studies',
         'social_science', 'humanities', 'biological_science', 'physical_science',
-        'natural_science', 'literature', 'level'
+        'natural_science', 'literature', 'level',
+        'typically_offered', 'workplace_experience_description',
+        'grading_basis_description', 'open_to_first_year',
+        'repeatable_for_credit'
     ];
     
     const coursesCsv = [
@@ -389,7 +429,7 @@ function generateCSVFiles(courseData, sectionData) {
         'section_id', 'course_id', 'subject_code', 'catalog_number',
         'instructors', 'status', 'available_seats', 'waitlist_total',
         'capacity', 'enrolled',
-        'instruction_mode', 'is_asynchronous'
+        'instruction_mode', 'is_asynchronous', 'section_requisites'
     ];
     
     const sectionsCsv = [
@@ -399,14 +439,26 @@ function generateCSVFiles(courseData, sectionData) {
     
     fs.writeFileSync(`data/csv/${prefix}uw_madison_sections.csv`, sectionsCsv);
     log(`Sections CSV written to ${prefix}uw_madison_sections.csv`, 'SUCCESS');
+
+    // Generate subjects CSV
+    if (Array.isArray(subjectData) && subjectData.length > 0) {
+        const subjectsHeader = ['subject_code', 'footnotes'];
+        const subjectsCsv = [
+            subjectsHeader.join(','),
+            ...subjectData.map(subject => subjectsHeader.map(field => escapeCsvValue(subject[field])).join(','))
+        ].join('\n');
+        fs.writeFileSync(`data/csv/${prefix}uw_madison_subjects.csv`, subjectsCsv);
+        log(`Subjects CSV written to ${prefix}uw_madison_subjects.csv`, 'SUCCESS');
+    }
 }
 
-function generateSQLDump(courseData, sectionData, meetingData) {
+function generateSQLDump(courseData, sectionData, meetingData, subjectData) {
     const tablePrefix = DEV_CONFIG.USE_TEST_TABLES ? DEV_CONFIG.TEST_TABLE_PREFIX : '';
     const coursesTable = `${tablePrefix}courses`;
     const sectionsTable = `${tablePrefix}sections`;
     const instructorsTable = `${tablePrefix}section_instructors`;
     const meetingsTable = `${tablePrefix}section_meetings`;
+    const subjectsTable = `${tablePrefix}subjects`;
     
     log('Generating SQL dump...');
     
@@ -420,6 +472,7 @@ DROP TABLE IF EXISTS ${instructorsTable};
 DROP TABLE IF EXISTS ${sectionsTable};
 DROP TABLE IF EXISTS ${coursesTable};
 DROP TABLE IF EXISTS ${meetingsTable};
+DROP TABLE IF EXISTS ${subjectsTable};
 
 -- Create courses table
 CREATE TABLE ${coursesTable} (
@@ -444,6 +497,11 @@ CREATE TABLE ${coursesTable} (
     natural_science VARCHAR(10),
     literature VARCHAR(10),
     level VARCHAR(10),
+    typically_offered VARCHAR(100),
+    workplace_experience_description VARCHAR(100),
+    grading_basis_description VARCHAR(50),
+    open_to_first_year VARCHAR(1),
+    repeatable_for_credit VARCHAR(1),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -462,6 +520,7 @@ CREATE TABLE ${sectionsTable} (
     enrolled INT,
     instruction_mode VARCHAR(50),
     is_asynchronous VARCHAR(5),
+    section_requisites TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -498,8 +557,15 @@ CREATE TABLE ${meetingsTable} (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create subjects table
+CREATE TABLE ${subjectsTable} (
+    subject_code VARCHAR(10) PRIMARY KEY,
+    footnotes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Insert course data
-INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level, catalog_number) VALUES\n`;
+INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level, typically_offered, workplace_experience_description, grading_basis_description, open_to_first_year, repeatable_for_credit, catalog_number) VALUES\n`;
 
     const chunkSize = 500; // Number of rows per INSERT statement
 
@@ -533,6 +599,11 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
             formatValue(course.naturalScience),              // string
             formatValue(course.literature),                  // string
             formatValue(course.level),                       // string
+            formatValue(course.typicallyOffered),            // string
+            formatValue(course.workplaceExperienceDescription), // string
+            formatValue(course.gradingBasisDescription),     // string
+            formatValue(course.openToFirstYear),             // string ('Y'/'N')
+            formatValue(course.repeatableForCredit),         // string ('Y'/'N')
             formatValue(course.catalogNumber, true)          // numeric - no quotes
         ];
         
@@ -541,9 +612,22 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
 
     sqlDump += courseValues + ';\n\n';
 
+    // Insert subjects data
+    if (Array.isArray(subjectData) && subjectData.length > 0) {
+        sqlDump += `-- Insert subjects data\nINSERT INTO ${subjectsTable} (subject_code, footnotes) VALUES\n`;
+        const subjectValues = subjectData.map(s => {
+            const formatValue = (val) => {
+                if (val === null || val === undefined) return 'NULL';
+                return `'${String(val).replace(/'/g, "''")}'`;
+            };
+            return `(${formatValue(s.subject_code)}, ${formatValue(s.footnotes)})`;
+        }).join(',\n');
+        sqlDump += subjectValues + ';\n\n';
+    }
+
     // Insert section data
     if (sectionData.length > 0) {
-        sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, unique_section_id, course_id, course_uuid, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous) VALUES\n`;
+        sqlDump += `-- Insert section data\nINSERT INTO ${sectionsTable} (section_id, unique_section_id, course_id, course_uuid, subject_code, catalog_number, status, available_seats, waitlist_total, capacity, enrolled, instruction_mode, is_asynchronous, section_requisites) VALUES\n`;
 
         const sectionValues = sectionData.map(section => {
             const formatValue = (val, isNumeric = false) => {
@@ -565,7 +649,8 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
                 formatValue(section.capacity, true),         // numeric - no quotes
                 formatValue(section.enrolled, true),         // numeric - no quotes
                 formatValue(section.instructionMode),     // string
-                formatValue(section.isAsynchronous)       // string
+                formatValue(section.isAsynchronous),      // string
+                formatValue(section.sectionRequisites)    // string (TEXT)
             ];
             
             return `(${values.join(', ')})`;
@@ -748,7 +833,32 @@ async function getAllCourseSearchAndEnrollData() {
             naturalScience: course.breadths?.find(b => b.code === 'N')?.code,
             literature: course.breadths?.find(b => b.code === 'L')?.code,
             level: course.levels?.[0]?.code,
+            // New attributes
+            typicallyOffered: course.typicallyOffered || null,
+            workplaceExperienceDescription: course.workplaceExperience?.description || null,
+            gradingBasisDescription: course.gradingBasis?.description || null,
+            openToFirstYear: course.openToFirstYear ? 'Y' : 'N',
+            repeatableForCredit: course.repeatable === 'Y' || course.repeatable === true ? 'Y' : 'N',
         }));
+
+        // Build subjects data (subject_code, footnotes)
+        const subjectMap = new Map();
+        for (const c of coursesToProcess) {
+            const code = c.subject?.subjectCode;
+            if (!code) continue;
+            const footnotesArr = Array.isArray(c.subject?.footnotes) ? c.subject.footnotes : [];
+            const footnotesText = footnotesArr.join('\n');
+            if (!subjectMap.has(code)) {
+                subjectMap.set(code, { subject_code: code, footnotes: footnotesText || null });
+            } else if (footnotesText) {
+                // Merge additional footnotes if any not yet captured
+                const existing = subjectMap.get(code);
+                if (!existing.footnotes) {
+                    existing.footnotes = footnotesText;
+                }
+            }
+        }
+        const subjectData = Array.from(subjectMap.values());
 
         let allSectionData = [];
         let allMeetingData = [];
@@ -757,7 +867,12 @@ async function getAllCourseSearchAndEnrollData() {
             log('Fetching section data...');
             
             if (DEV_CONFIG.USE_MOCK_DATA) {
-                allSectionData = formatSectionData(MOCK_SECTION_DATA);
+                // For mock data, find matching course or use empty prerequisites
+                const mockCourse = courseData.find(c => c.courseId === MOCK_SECTION_DATA[0]?.courseId);
+                const mockPrereq = mockCourse?.enrollmentPrerequisites || null;
+                const { sections, meetings } = formatSectionData(MOCK_SECTION_DATA, mockCourse?.courseUUID || uuidv4(), mockPrereq);
+                allSectionData = sections;
+                allMeetingData = meetings;
             } else {
                 const sectionRequests = courseData.map((course) => {
                     return async () => {
@@ -786,7 +901,11 @@ async function getAllCourseSearchAndEnrollData() {
                 sectionResults.forEach(result => {
                     if (result && result.sections) {
                         successCount++;
-                        const { sections, meetings } = formatSectionData(result.sections, result.course.courseUUID);
+                        const { sections, meetings } = formatSectionData(
+                            result.sections, 
+                            result.course.courseUUID,
+                            result.course.enrollmentPrerequisites
+                        );
                         allSectionData.push(...sections);
                         allMeetingData.push(...meetings);
                     } else {
@@ -803,8 +922,8 @@ async function getAllCourseSearchAndEnrollData() {
         log(`Total sections found: ${allSectionData.length}`, 'SUCCESS');
 
         // Generate files
-        generateSQLDump(courseData, allSectionData, allMeetingData);
-        generateCSVFiles(courseData, allSectionData, allMeetingData);
+        generateSQLDump(courseData, allSectionData, allMeetingData, subjectData);
+        generateCSVFiles(courseData, allSectionData, subjectData);
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
         log(`🎉 Data export completed in ${elapsed} seconds! 🎉`, 'SUCCESS');
