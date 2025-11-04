@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // ====================================
 const DEV_CONFIG = {
     // Set to true for rapid testing - only fetches first few courses
-    TEST_MODE: true,
+    TEST_MODE: false,
     
     // Number of courses to fetch in test mode (1-10 recommended for quick testing)
     TEST_COURSE_LIMIT: 50,
