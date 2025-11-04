@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // ====================================
 const DEV_CONFIG = {
     // Set to true for rapid testing - only fetches first few courses
-    TEST_MODE: false,
+    TEST_MODE: true,
     
     // Number of courses to fetch in test mode (1-10 recommended for quick testing)
     TEST_COURSE_LIMIT: 50,
@@ -86,18 +86,22 @@ const MOCK_SECTION_DATA = [
         subjectCode: "COMP",
         catalogNumber: "101",
         sections: [{
+            type: "LEC",
+            sectionNumber: "001",
             instructors: [{ name: { first: "John", last: "Doe" } }],
             instructionMode: "In Person",
-            enrollmentStatus: { capacity: 30, currentlyEnrolled: 25 }
+            enrollmentStatus: { capacity: 30, currentlyEnrolled: 25 },
+            classMeetings: [{
+                meetingType: "CLASS",
+                meetingOrExamNumber: "1",
+                meetingDays: "MWF",
+                meetingTimeStart: 32400000, // 9:00 AM in milliseconds
+                meetingTimeEnd: 36000000,   // 10:00 AM in milliseconds
+                building: { buildingName: "Computer Sciences" },
+                room: "1240"
+            }]
         }],
         packageEnrollmentStatus: { status: "OPEN", availableSeats: 5, waitlistTotal: 0 },
-        classMeetings: [{
-            meetingDays: "MWF",
-            meetingTimeStart: 32400000, // 9:00 AM in milliseconds
-            meetingTimeEnd: 36000000,   // 10:00 AM in milliseconds
-            building: { buildingName: "Computer Sciences" },
-            room: "1240"
-        }],
         isAsynchronous: false
     }
 ];
@@ -331,6 +335,7 @@ function formatSectionData(courseSections, courseUUID, coursePrerequisites) {
             const meetingData = {
                 meetingType: nestedSection.type,
                 meetingNumber: firstClassMeeting.meetingOrExamNumber,
+                sectionNumber: nestedSection.sectionNumber,
                 uniqueSectionId: uniqueSectionId,
                 sectionId: section.enrollmentClassNumber,
                 meetingDays: firstClassMeeting.meetingDays || null,
@@ -536,6 +541,7 @@ CREATE TABLE ${meetingsTable} (
     id INT AUTO_INCREMENT PRIMARY KEY,
     section_id VARCHAR(50) NOT NULL,
     unique_section_id VARCHAR(50) NOT NULL,
+    section_number VARCHAR(10),
     meeting_type VARCHAR(50) NOT NULL,
     meeting_number INT,
     meeting_days VARCHAR(10),
@@ -685,7 +691,7 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
 
 if (meetingData.length > 0) {
     sqlDump += `\n-- Insert ${meetingsTable} data\n`;
-    sqlDump += `INSERT INTO ${meetingsTable} (section_id, unique_section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
+    sqlDump += `INSERT INTO ${meetingsTable} (section_id, unique_section_id, section_number, meeting_type, meeting_number, meeting_days, start_time, end_time, building_name, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
     
     const meetingValues = meetingData.map(meeting => {
         const formatValue = (val, isNumeric = false) => {
@@ -697,12 +703,13 @@ if (meetingData.length > 0) {
         const values = [
             formatValue(meeting.sectionId),
             formatValue(meeting.uniqueSectionId),
+            formatValue(meeting.sectionNumber),
+            formatValue(meeting.meetingType),
             formatValue(meeting.meetingNumber, true),
             formatValue(meeting.meetingDays),
             formatValue(meeting.startTime),
             formatValue(meeting.endTime),
             formatValue(meeting.buildingName),
-            formatValue(meeting.meetingType),
             formatValue(meeting.room),
             formatValue(meeting.location),
             formatValue(meeting.mondayMeetingStart, true),
@@ -727,7 +734,7 @@ if (meetingData.length > 0) {
         sqlDump += chunk.join(',\n') + ';\n';
         
         if (i + chunkSize < meetingValues.length) {
-            sqlDump += `\nINSERT INTO ${meetingsTable} (section_id, unique_section_id, meeting_number, meeting_days, start_time, end_time, building_name, meeting_type, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
+            sqlDump += `\nINSERT INTO ${meetingsTable} (section_id, unique_section_id, section_number, meeting_type, meeting_number, meeting_days, start_time, end_time, building_name, room, location, monday_meeting_start, monday_meeting_end, tuesday_meeting_start, tuesday_meeting_end, wednesday_meeting_start, wednesday_meeting_end, thursday_meeting_start, thursday_meeting_end, friday_meeting_start, friday_meeting_end) VALUES\n`;
         }
     }
 }
