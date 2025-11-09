@@ -418,7 +418,7 @@ function generateCSVFiles(courseData, sectionData, subjectData) {
         'natural_science', 'literature', 'level',
         'typically_offered', 'workplace_experience_description',
         'grading_basis_description', 'open_to_first_year',
-        'repeatable_for_credit'
+        'repeatable_for_credit', 'status'
     ];
     
     const coursesCsv = [
@@ -507,6 +507,7 @@ CREATE TABLE ${coursesTable} (
     grading_basis_description VARCHAR(50),
     open_to_first_year VARCHAR(1),
     repeatable_for_credit VARCHAR(1),
+    status INT DEFAULT 0 COMMENT '0=closed, 1=waitlisted, 2=open',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -571,7 +572,7 @@ CREATE TABLE ${subjectsTable} (
 );
 
 -- Insert course data
-INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level, typically_offered, workplace_experience_description, grading_basis_description, open_to_first_year, repeatable_for_credit, catalog_number) VALUES\n`;
+INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title, course_description, enrollment_prerequisites, letters_and_science_credits, course_designation, full_course_designation, minimum_credits, maximum_credits, general_education, ethnic_studies, social_science, humanities, biological_science, physical_science, natural_science, literature, level, typically_offered, workplace_experience_description, grading_basis_description, open_to_first_year, repeatable_for_credit, catalog_number, status) VALUES\n`;
 
     const chunkSize = 500; // Number of rows per INSERT statement
 
@@ -610,7 +611,8 @@ INSERT INTO ${coursesTable} (course_id, course_uuid, subject_code, course_title,
             formatValue(course.gradingBasisDescription),     // string
             formatValue(course.openToFirstYear),             // string ('Y'/'N')
             formatValue(course.repeatableForCredit),         // string ('Y'/'N')
-            formatValue(course.catalogNumber, true)          // numeric - no quotes
+            formatValue(course.catalogNumber, true),         // numeric - no quotes
+            formatValue(course.status, true)                 // numeric - no quotes (0, 1, or 2)
         ];
         
         return `(${values.join(', ')})`;
@@ -846,6 +848,7 @@ async function getAllCourseSearchAndEnrollData() {
             gradingBasisDescription: course.gradingBasis?.description || null,
             openToFirstYear: course.openToFirstYear ? 'Y' : 'N',
             repeatableForCredit: course.repeatable === 'Y' || course.repeatable === true ? 'Y' : 'N',
+            status: 0, // Default to closed, will be updated based on sections
         }));
 
         // Build subjects data (subject_code, footnotes)
@@ -927,6 +930,27 @@ async function getAllCourseSearchAndEnrollData() {
         }
 
         log(`Total sections found: ${allSectionData.length}`, 'SUCCESS');
+
+        // Calculate denormalized status for each course based on sections
+        courseData.forEach(course => {
+            const courseSections = allSectionData.filter(section => section.courseUUID === course.courseUUID);
+            
+            if (courseSections.length === 0) {
+                course.status = 0; // No sections means closed
+            } else {
+                // Check if ANY section is OPEN
+                const hasOpen = courseSections.some(section => section.status === 'OPEN');
+                if (hasOpen) {
+                    course.status = 2;
+                } else {
+                    // Check if ANY section is WAITLISTED
+                    const hasWaitlisted = courseSections.some(section => section.status === 'WAITLISTED');
+                    course.status = hasWaitlisted ? 1 : 0;
+                }
+            }
+        });
+
+        log('Calculated denormalized status for courses', 'SUCCESS');
 
         // Generate files
         generateSQLDump(courseData, allSectionData, allMeetingData, subjectData);
