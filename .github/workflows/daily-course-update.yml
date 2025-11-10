@@ -33,4 +33,6 @@ jobs:
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         DB_NAME: ${{ secrets.DB_NAME }}
         DB_PORT: ${{ secrets.DB_PORT }}
+        REDIS_PUBLIC_URL: ${{ secrets.REDIS_PUBLIC_URL}}
+        
       run: node src/utils/run_dumps.js data/sql/uw_madison_courses.sql
