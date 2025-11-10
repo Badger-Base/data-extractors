@@ -1,6 +1,7 @@
 import mysql from 'mysql2';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import Redis from 'ioredis';
 dotenv.config();
 
 const args = process.argv.slice(2);
@@ -14,11 +15,19 @@ if (args.length > 0) {
     console.log("No arguments provided.");
   }
 
+
+
 console.log(process.env.DB_HOST);
 console.log(process.env.DB_USER);
 console.log(process.env.DB_PASSWORD);
 console.log(process.env.DB_NAME);
 console.log(process.env.DB_PORT);
+
+
+
+const redis = new Redis(process.env.REDIS_PUBLIC_URL);
+await redis.flushall(); // Clear all Redis data
+
 
 const connection = mysql.createConnection({
     host: process.env.DB_HOST,
