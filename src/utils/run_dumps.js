@@ -27,6 +27,8 @@ console.log(process.env.DB_PORT);
 
 const redis = new Redis(process.env.REDIS_PUBLIC_URL);
 await redis.flushall(); // Clear all Redis data
+await redis.quit(); // Close Redis connection
+console.log('Redis flushed and connection closed');
 
 
 const connection = mysql.createConnection({
@@ -42,6 +44,7 @@ connection.connect((err) => {
 
     if (err) {
         console.error('Error connecting: ' + err.stack);
+        process.exit(1);
         return;
     }
     console.log('Connected as id ' + connection.threadId);
@@ -56,6 +59,7 @@ function executeDumpFile(filePath) {
         if (err) {
             console.error('Error reading dump file:', err);
             connection.end(); // Close connection on error
+            process.exit(1);
             return;
         }
         
@@ -66,6 +70,7 @@ function executeDumpFile(filePath) {
             if (error) {
                 console.error('Error executing dump:', error);
                 connection.end(); // Close connection on error
+                process.exit(1);
                 return;
             }
             
@@ -73,7 +78,10 @@ function executeDumpFile(filePath) {
             console.log('Results:', results);
             
             // Close connection after successful execution
-            connection.end();
+            connection.end(() => {
+                console.log('MySQL connection closed');
+                process.exit(0);
+            });
         });
     });
 }
