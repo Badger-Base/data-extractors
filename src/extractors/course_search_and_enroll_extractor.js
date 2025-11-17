@@ -39,8 +39,8 @@ const HEADERS = {
 }
 
 // Rate limiting configuration - reduced for dev mode
-const RATE_LIMIT_DELAY = DEV_CONFIG.TEST_MODE ? 50 : 100; // milliseconds between requests
-const BATCH_SIZE = DEV_CONFIG.TEST_MODE ? 3 : 50; // process in batches
+const RATE_LIMIT_DELAY = DEV_CONFIG.TEST_MODE ? 10 : 10; // milliseconds between requests
+const BATCH_SIZE = DEV_CONFIG.TEST_MODE ? 3 : 250; // process in batches
 const MAX_RETRIES = DEV_CONFIG.TEST_MODE ? 1 : 3;
 
 // Mock data for instant testing
@@ -128,7 +128,7 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
 
     for (let i = 0; i <= retries; i++) {
         try {
-            log(`Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
+      //      log(`Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
             const response = await fetch(url, options);
             
             if (!response.ok) {
@@ -143,7 +143,7 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
             }
             
             const data = await response.json();
-            log(`Got data from: ${url}`, 'SUCCESS');
+           // log(`Got data from: ${url}`, 'SUCCESS');
             return data;
             
         } catch (error) {
