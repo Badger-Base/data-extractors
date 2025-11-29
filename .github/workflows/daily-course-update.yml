@@ -35,3 +35,14 @@ jobs:
         DB_PORT: ${{ secrets.DB_PORT }}
         REDIS_PUBLIC_URL: ${{ secrets.REDIS_PUBLIC_URL }}
       run: node src/utils/run_dumps.js data/sql/uw_madison_courses.sql
+      
+    - name: Run email service
+      env:
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+        ELASTIC_EMAIL_API_KEY: ${{ secrets.ELASTIC_EMAIL_API_KEY }}
+        FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+      run: node src/utils/run_open_email_service.js
