@@ -1,5 +1,9 @@
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import dotenv from 'dotenv';
+import puppeteer from 'puppeteer';
+
+dotenv.config();
 
 // ====================================
 // DEVELOPMENT CONFIGURATION
@@ -29,18 +33,24 @@ const DEV_CONFIG = {
     
 };
 
-const HEADERS = {
+// Browser session will be initialized at runtime
+let browserSession = null;
+let browserPage = null;
+
+// Base headers (without WAF token - token will be added via browser session)
+const BASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.5",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
     "Content-Type": "application/json",
     "Authorization": "Basic dGVzdDp0ZXN0",
     "Sec-GPC": "1",
-}
+    "Referer": "https://public.enroll.wisc.edu/search"
+};
 
 // Rate limiting configuration - reduced for dev mode
-const RATE_LIMIT_DELAY = DEV_CONFIG.TEST_MODE ? 10 : 10; // milliseconds between requests
-const BATCH_SIZE = DEV_CONFIG.TEST_MODE ? 3 : 250; // process in batches
+const RATE_LIMIT_DELAY = DEV_CONFIG.TEST_MODE ? 50 : 10; // milliseconds between requests
+const BATCH_SIZE = DEV_CONFIG.TEST_MODE ? 3 : 100; // process in batches
 const MAX_RETRIES = DEV_CONFIG.TEST_MODE ? 1 : 3;
 
 // Mock data for instant testing
@@ -118,7 +128,7 @@ function log(message, level = 'INFO') {
     }
 }
 
-// Utility function to make a request with retry logic
+// Utility function to make a request with retry logic using browser session
 async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
     if (DEV_CONFIG.USE_MOCK_DATA) {
         log(`Mock request for: ${url}`, 'DEBUG');
@@ -126,28 +136,117 @@ async function makeRequestWithRetry(url, options, retries = MAX_RETRIES) {
         return url.includes('enrollmentPackages') ? MOCK_SECTION_DATA : { hits: MOCK_COURSE_DATA };
     }
 
+    // If no browser session, fall back to regular fetch (for backwards compatibility)
+    if (!browserPage) {
+        log('⚠️  No browser session - using regular fetch (WAF token may not work)', 'WARNING');
+        for (let i = 0; i <= retries; i++) {
+            try {
+                const response = await fetch(url, options);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    log(`Non-JSON response for ${url}: ${text.substring(0, 200)}...`, 'ERROR');
+                    throw new Error(`Expected JSON but got: ${contentType}`);
+                }
+                
+                const data = await response.json();
+                return data;
+                
+            } catch (error) {
+                log(`Request failed (attempt ${i + 1}): ${error.message}`, 'ERROR');
+                
+                if (i === retries) {
+                    log(`Max retries reached for: ${url}`, 'ERROR');
+                    throw error;
+                }
+                
+                const backoffDelay = RATE_LIMIT_DELAY * Math.pow(2, i);
+                log(`Waiting ${backoffDelay}ms before retry...`);
+                await delay(backoffDelay);
+            }
+        }
+        return;
+    }
+
+    // Use browser session for requests (includes WAF token automatically)
     for (let i = 0; i <= retries; i++) {
         try {
-      //      log(`Attempting: ${url} (attempt ${i + 1}/${retries + 1})`);
-            const response = await fetch(url, options);
+            // Make request from browser context - cookies and WAF token are automatically included
+            // Use page.evaluate to run fetch in the browser context
+            const result = await browserPage.evaluate(async (requestUrl, method, headersObj, body) => {
+                try {
+                    // Convert headers object to Headers instance
+                    const headers = new Headers();
+                    for (const [key, value] of Object.entries(headersObj)) {
+                        headers.set(key, value);
+                    }
+                    
+                    // Build fetch options
+                    const fetchOptions = {
+                        method: method,
+                        headers: headers,
+                        credentials: 'include', // Include cookies (WAF token)
+                        mode: 'cors',
+                        cache: 'no-cache'
+                    };
+                    
+                    if (body) {
+                        fetchOptions.body = body;
+                    }
+                    
+                    // Make the request
+                    const response = await fetch(requestUrl, fetchOptions);
+                    
+                    // Get response text first
+                    const responseText = await response.text();
+                    
+                    // Check status
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${responseText.substring(0, 500)}`);
+                    }
+                    
+                    // Check content type
+                    const contentType = response.headers.get('content-type') || '';
+                    if (!contentType.includes('application/json')) {
+                        throw new Error(`Expected JSON but got: ${contentType}. Response: ${responseText.substring(0, 500)}`);
+                    }
+                    
+                    // Parse and return JSON
+                    return JSON.parse(responseText);
+                } catch (err) {
+                    // Return error details for better debugging
+                    return {
+                        __error: true,
+                        message: err.message,
+                        stack: err.stack?.substring(0, 500)
+                    };
+                }
+            }, url, options.method || 'GET', options.headers || {}, options.body);
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Check for error in result
+            if (result && result.__error) {
+                throw new Error(result.message);
             }
             
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                const text = await response.text();
-                log(`Non-JSON response for ${url}: ${text.substring(0, 200)}...`, 'ERROR');
-                throw new Error(`Expected JSON but got: ${contentType}`);
-            }
-            
-            const data = await response.json();
-           // log(`Got data from: ${url}`, 'SUCCESS');
-            return data;
+            return result;
             
         } catch (error) {
             log(`Request failed (attempt ${i + 1}): ${error.message}`, 'ERROR');
+            
+            // Log more details on first attempt
+            if (i === 0 && DEV_CONFIG.VERBOSE_LOGGING) {
+                log(`URL: ${url}`, 'DEBUG');
+                log(`Method: ${options.method || 'GET'}`, 'DEBUG');
+                log(`Has body: ${!!options.body}`, 'DEBUG');
+                if (error.stack) {
+                    log(`Stack: ${error.stack.substring(0, 500)}`, 'DEBUG');
+                }
+            }
             
             if (i === retries) {
                 log(`Max retries reached for: ${url}`, 'ERROR');
@@ -759,6 +858,209 @@ if (meetingData.length > 0) {
 async function getAllCourseSearchAndEnrollData() {
     const startTime = Date.now();
     
+    // Initialize browser session for WAF token
+    // Allow headless mode to be disabled for CAPTCHA solving
+    let isHeadlessMode = true; // Default to headless
+    if (!DEV_CONFIG.USE_MOCK_DATA) {
+        try {
+            log('🌐 Initializing browser session for WAF token...', 'INFO');
+            isHeadlessMode = process.env.PUPPETEER_HEADLESS !== 'false';
+            browserSession = await puppeteer.launch({
+                headless: isHeadlessMode,
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            });
+            
+            if (!isHeadlessMode) {
+                log('👀 Running in non-headless mode (PUPPETEER_HEADLESS=false)', 'INFO');
+            }
+            
+            browserPage = await browserSession.newPage();
+            await browserPage.setViewport({ width: 1920, height: 1080 });
+            await browserPage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            
+            // Navigate to enrollment site to get WAF token
+            log('📡 Navigating to enrollment site to generate WAF token...', 'INFO');
+            
+            await browserPage.goto('https://public.enroll.wisc.edu/search', {
+                waitUntil: 'domcontentloaded',
+                timeout: 30000
+            });
+            
+            // Wait a moment for page to load
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // Check if we're facing a visual CAPTCHA challenge
+            const pageTitle = await browserPage.title();
+            const hasCaptcha = await browserPage.evaluate(() => {
+                // Check for common CAPTCHA indicators
+                const bodyText = document.body?.innerText || '';
+                const hasTrafficCone = bodyText.toLowerCase().includes('traffic cone') || 
+                                      bodyText.toLowerCase().includes('select all');
+                const hasChallenge = document.querySelector('[data-captcha]') || 
+                                    document.querySelector('.challenge-container') ||
+                                    document.querySelector('#challenge-form');
+                return hasTrafficCone || hasChallenge || bodyText.includes('Please select');
+            });
+            
+            if (pageTitle === 'Human Verification' || hasCaptcha) {
+                log('🚧 Visual CAPTCHA challenge detected!', 'WARNING');
+                
+                if (isHeadlessMode) {
+                    log('⚠️  Running in headless mode - CAPTCHA cannot be solved automatically', 'ERROR');
+                    log('💡 Solutions:', 'INFO');
+                    log('   1. Use a CAPTCHA solving service (2captcha, anti-captcha)', 'INFO');
+                    log('   2. Run with headless: false to solve manually', 'INFO');
+                    log('   3. Use a proxy service that handles CAPTCHAs', 'INFO');
+                    log('', 'INFO');
+                    log('   For now, waiting up to 5 minutes for manual intervention...', 'INFO');
+                    log('   If running locally, switch to non-headless mode:', 'INFO');
+                    log('   headless: false in puppeteer.launch()', 'INFO');
+                    
+                    // Wait up to 5 minutes for challenge to be solved
+                    let challengeSolved = false;
+                    let waitAttempts = 0;
+                    const maxWaitAttempts = 300; // 5 minutes
+                    
+                    while (!challengeSolved && waitAttempts < maxWaitAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        waitAttempts++;
+                        
+                        const currentTitle = await browserPage.title();
+                        const currentUrl = browserPage.url();
+                        
+                        // Check if challenge is solved
+                        if (currentTitle !== 'Human Verification' && !currentTitle.includes('Verification')) {
+                            if (currentUrl.includes('/search')) {
+                                // Test API access
+                                try {
+                                    const testResult = await browserPage.evaluate(async () => {
+                                        try {
+                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/240/003275', {
+                                                method: 'GET',
+                                                credentials: 'include',
+                                                headers: {
+                                                    'Accept': 'application/json',
+                                                    'Referer': 'https://public.enroll.wisc.edu/search'
+                                                }
+                                            });
+                                            const contentType = testResponse.headers.get('content-type') || '';
+                                            return {
+                                                status: testResponse.status,
+                                                ok: testResponse.ok,
+                                                isJson: contentType.includes('application/json')
+                                            };
+                                        } catch (e) {
+                                            return { error: e.message };
+                                        }
+                                    });
+                                    
+                                    if (testResult.ok && testResult.isJson) {
+                                        challengeSolved = true;
+                                        log(`✅ CAPTCHA solved! (${waitAttempts}s)`, 'SUCCESS');
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Continue waiting
+                                }
+                            }
+                        }
+                        
+                        if (waitAttempts % 30 === 0) {
+                            log(`   Still waiting for CAPTCHA to be solved... (${waitAttempts}s / 300s)`, 'INFO');
+                        }
+                    }
+                    
+                    if (!challengeSolved) {
+                        throw new Error('CAPTCHA challenge not solved within 5 minutes. Please run in non-headless mode or use a CAPTCHA solving service.');
+                    }
+                } else {
+                    // Non-headless mode - wait for manual solving
+                    log('👀 Browser is visible - please solve the CAPTCHA challenge manually', 'INFO');
+                    log('   Waiting for challenge to be completed...', 'INFO');
+                    
+                    let challengeSolved = false;
+                    let waitAttempts = 0;
+                    const maxWaitAttempts = 600; // 10 minutes for manual solving
+                    
+                    while (!challengeSolved && waitAttempts < maxWaitAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        waitAttempts += 2;
+                        
+                        const currentTitle = await browserPage.title();
+                        const currentUrl = browserPage.url();
+                        
+                        // Check if challenge is solved
+                        if (currentTitle !== 'Human Verification' && !currentTitle.includes('Verification')) {
+                            if (currentUrl.includes('/search')) {
+                                // Test API access
+                                try {
+                                    const testResult = await browserPage.evaluate(async () => {
+                                        try {
+                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/240/003275', {
+                                                method: 'GET',
+                                                credentials: 'include',
+                                                headers: {
+                                                    'Accept': 'application/json',
+                                                    'Referer': 'https://public.enroll.wisc.edu/search'
+                                                }
+                                            });
+                                            const contentType = testResponse.headers.get('content-type') || '';
+                                            return {
+                                                status: testResponse.status,
+                                                ok: testResponse.ok,
+                                                isJson: contentType.includes('application/json')
+                                            };
+                                        } catch (e) {
+                                            return { error: e.message };
+                                        }
+                                    });
+                                    
+                                    if (testResult.ok && testResult.isJson) {
+                                        challengeSolved = true;
+                                        log(`✅ CAPTCHA solved! Continuing...`, 'SUCCESS');
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Continue waiting
+                                }
+                            }
+                        }
+                        
+                        if (waitAttempts % 10 === 0) {
+                            log(`   Still waiting... (${waitAttempts}s)`, 'DEBUG');
+                        }
+                    }
+                    
+                    if (!challengeSolved) {
+                        throw new Error('CAPTCHA challenge not solved within 10 minutes.');
+                    }
+                }
+            } else {
+                log('✅ No CAPTCHA challenge detected, proceeding...', 'SUCCESS');
+            }
+            
+            // Verify token exists
+            const cookies = await browserPage.cookies();
+            const wafToken = cookies.find(c => c.name === 'aws-waf-token');
+            if (wafToken) {
+                log('✅ WAF token found', 'SUCCESS');
+                log(`   Token (first 50 chars): ${wafToken.value.substring(0, 50)}...`, 'DEBUG');
+            } else {
+                log('⚠️  WAF token not found', 'WARNING');
+            }
+            
+            // Verify we're on the right page
+            const currentUrl = browserPage.url();
+            const finalPageTitle = await browserPage.title();
+            log(`   Current page: ${currentUrl}`, 'DEBUG');
+            log(`   Page title: ${finalPageTitle}`, 'DEBUG');
+        } catch (error) {
+            log(`⚠️  Failed to initialize browser session: ${error.message}`, 'WARNING');
+            log('   Falling back to regular fetch (may not work without WAF token)', 'WARNING');
+            // Continue without browser session
+        }
+    }
+    
     try {
         if (DEV_CONFIG.TEST_MODE) {
             log(`🚀 DEVELOPMENT MODE ACTIVE 🚀`, 'SUCCESS');
@@ -776,7 +1078,7 @@ async function getAllCourseSearchAndEnrollData() {
             allCourseSearchAndEnrollData = { hits: MOCK_COURSE_DATA };
         } else {
             allCourseSearchAndEnrollData = await makeRequestWithRetry('https://public.enroll.wisc.edu/api/search/v1', {
-                headers: HEADERS,
+                headers: BASE_HEADERS,
                 method: 'POST',
                 body: JSON.stringify({
                     "selectedTerm": "1264",
@@ -889,7 +1191,7 @@ async function getAllCourseSearchAndEnrollData() {
                         const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/${course.subjectCode}/${course.courseId}`;
                         try {
                             const data = await makeRequestWithRetry(url, {
-                                headers: HEADERS,
+                                headers: BASE_HEADERS,
                                 method: 'GET',
                             });
 
@@ -966,6 +1268,18 @@ async function getAllCourseSearchAndEnrollData() {
     } catch (error) {
         log(`FATAL ERROR: ${error}`, 'ERROR');
         log(`Stack trace: ${error.stack}`, 'ERROR');
+    } finally {
+        // Close browser session
+        if (browserSession) {
+            try {
+                log('🔒 Closing browser session...', 'INFO');
+                await browserSession.close();
+                browserSession = null;
+                browserPage = null;
+            } catch (closeError) {
+                log(`Warning: Error closing browser: ${closeError.message}`, 'WARNING');
+            }
+        }
     }
 }
 
