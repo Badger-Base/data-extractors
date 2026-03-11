@@ -11,6 +11,9 @@
     "preprocess:rmp": "python src/preprocessors/rmp_preprocessor.py",
     "db:import": "node src/utils/run_dumps.js",
     "test": "node tests/test.js",
+    "test:waf": "node test_waf_challenge.js",
+    "waf:token": "node src/utils/get_waf_token.js",
+    "waf:update-secret": "node src/utils/update_github_secret.js",
     "extract:all": "npm run extract:madgrades && npm run extract:courses && npm run extract:rmp"
   },
   "keywords": [
@@ -24,10 +27,13 @@
   "author": "Badger Base",
   "license": "MIT",
   "dependencies": {
+    "@octokit/rest": "^20.0.2",
     "dotenv": "^17.2.2",
     "ioredis": "^5.8.2",
     "mysql2": "^3.14.2",
+    "puppeteer": "^24.32.1",
     "redis": "^5.9.0",
+    "tweetsodium": "^0.7.1",
     "uuid": "^11.1.0"
   },
   "engines": {
