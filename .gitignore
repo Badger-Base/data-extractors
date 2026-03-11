@@ -46,5 +46,5 @@ temp/
 
 # Output files (if you want to exclude them)
 # Uncomment the following lines if you don't want to commit extracted data
-# data/csv/*.csv
-# data/sql/*.sql
+data/csv/*.csv
+data/sql/*.sql
