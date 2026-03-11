@@ -1069,14 +1069,16 @@ async function getAllCourseSearchAndEnrollData() {
             log(`- Test tables: ${DEV_CONFIG.USE_TEST_TABLES ? 'ON' : 'OFF'}`);
             log(`- Skip sections: ${DEV_CONFIG.SKIP_SECTIONS ? 'ON' : 'OFF'}`);
         }
-        
-        log('Fetching initial course search data...');
-        
+
+        log('Fetching initial course search data...', 'INFO');
+
         let allCourseSearchAndEnrollData;
-        
+
         if (DEV_CONFIG.USE_MOCK_DATA) {
-            allCourseSearchAndEnrollData = { hits: MOCK_COURSE_DATA };
-        } else {
+            allCourseSearchAndEnrollData = { hits: MOCK_COURSE_DATA, found: MOCK_COURSE_DATA.length };
+        } else if (DEV_CONFIG.TEST_MODE) {
+            // In test mode, keep a single-page fetch for speed
+            const pageSize = DEV_CONFIG.TEST_COURSE_LIMIT;
             allCourseSearchAndEnrollData = await makeRequestWithRetry('https://public.enroll.wisc.edu/api/search/v1', {
                 headers: BASE_HEADERS,
                 method: 'POST',
@@ -1107,17 +1109,101 @@ async function getAllCourseSearchAndEnrollData() {
                         }
                     ],
                     "page": 1,
-                    "pageSize": DEV_CONFIG.TEST_MODE ? DEV_CONFIG.TEST_COURSE_LIMIT : 10000,
+                    "pageSize": pageSize,
                     "sortOrder": "SCORE"
                 })
             });
+        } else {
+            // In production mode, paginate through all results since the API caps hits per page (~500)
+            const accumulatedHits = [];
+            let page = 1;
+            const requestedPageSize = 10000;
+            let totalFound = null;
+
+            while (true) {
+                log(`Requesting course page ${page}...`, 'INFO');
+
+                const response = await makeRequestWithRetry('https://public.enroll.wisc.edu/api/search/v1', {
+                    headers: BASE_HEADERS,
+                    method: 'POST',
+                    body: JSON.stringify({
+                        "selectedTerm": "1264",
+                        "queryString": "*",
+                        "filters": [
+                            {
+                                "has_child": {
+                                    "type": "enrollmentPackage",
+                                    "query": {
+                                        "bool": {
+                                            "must": [
+                                                {
+                                                    "match": {
+                                                        "packageEnrollmentStatus.status": "OPEN WAITLISTED CLOSED"
+                                                    }
+                                                },
+                                                {
+                                                    "match": {
+                                                        "published": true
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        ],
+                        "page": page,
+                        "pageSize": requestedPageSize,
+                        "sortOrder": "SCORE"
+                    })
+                });
+
+                const hits = response?.hits || [];
+                const pageFound = response?.found ?? response?.totalHits ?? null;
+                if (totalFound == null && pageFound != null) {
+                    totalFound = pageFound;
+                }
+
+                accumulatedHits.push(...hits);
+                log(`Page ${page}: received ${hits.length} hits (accumulated ${accumulatedHits.length}${totalFound != null ? `/${totalFound}` : ''})`, 'INFO');
+
+                // Stop when no more hits, or we've reached the reported total, or a safety page cap
+                if (hits.length === 0) {
+                    log(`No hits returned for page ${page}, stopping pagination.`, 'INFO');
+                    break;
+                }
+                if (totalFound != null && accumulatedHits.length >= totalFound) {
+                    log(`Reached reported total (${totalFound}) after page ${page}, stopping pagination.`, 'INFO');
+                    break;
+                }
+                if (page >= 50) {
+                    log(`Reached maximum page limit (50), stopping pagination.`, 'WARNING');
+                    break;
+                }
+
+                page += 1;
+            }
+
+            allCourseSearchAndEnrollData = {
+                hits: accumulatedHits,
+                found: totalFound
+            };
         }
 
+        log(`Raw course hits from API (after pagination): ${allCourseSearchAndEnrollData?.hits?.length ?? 'unknown'}`, 'INFO');
+        log(`API found/totalHits: ${allCourseSearchAndEnrollData?.found ?? allCourseSearchAndEnrollData?.totalHits ?? 'unknown'}`, 'INFO');
+
         let coursesToProcess = allCourseSearchAndEnrollData.hits;
-        
+
+        log(`DEV_CONFIG.TEST_MODE = ${DEV_CONFIG.TEST_MODE}`, 'INFO');
+        log(`DEV_CONFIG.TEST_COURSE_LIMIT = ${DEV_CONFIG.TEST_COURSE_LIMIT}`, 'INFO');
+        log(`DEV_CONFIG.USE_MOCK_DATA = ${DEV_CONFIG.USE_MOCK_DATA}`, 'INFO');
+        log(`coursesToProcess length before test-mode limiting: ${coursesToProcess?.length ?? 'unknown'}`, 'INFO');
+
         // Limit courses in test mode
         if (DEV_CONFIG.TEST_MODE && !DEV_CONFIG.USE_MOCK_DATA) {
             coursesToProcess = coursesToProcess.slice(0, DEV_CONFIG.TEST_COURSE_LIMIT);
+            log(`coursesToProcess length AFTER test-mode limiting: ${coursesToProcess.length}`, 'INFO');
         }
 
         log(`Found ${coursesToProcess.length} courses to process`, 'SUCCESS');
