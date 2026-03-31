@@ -2,9 +2,9 @@ name: Daily Course Update
 
 on:
   schedule:
-    # Run every day at 9:00 PM UTC
-    - cron: '0 01 * * *'
-  # Optional: allow manual triggering
+    # Run hourly from 7 AM CST (13:00 UTC) to 10 PM CST (04:00 UTC next day)
+    - cron: '0 13-23 * * *'   # 7 AM–5 PM CST
+    - cron: '0 0-4 * * *'     # 6 PM–10 PM CST
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,25 @@ jobs:
       run: npm install
         
     - name: Run course search and enroll extractor
-      run: node course_search_and_enroll_extractor.js
+      run: node src/extractors/course_search_and_enroll_extractor.js
       
     - name: Run database dumps
-      run: node run_dumps.js uw_madison_courses.sql
+      env:
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+        REDIS_PUBLIC_URL: ${{ secrets.REDIS_PUBLIC_URL }}
+      run: node src/utils/run_dumps.js data/sql/uw_madison_courses.sql
+      
+    - name: Run email service
+      env:
+        DB_HOST: ${{ secrets.DB_HOST }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_PORT: ${{ secrets.DB_PORT }}
+        ELASTIC_EMAIL_API_KEY: ${{ secrets.ELASTIC_EMAIL_API_KEY }}
+        FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+      run: node src/utils/run_open_email_service.js

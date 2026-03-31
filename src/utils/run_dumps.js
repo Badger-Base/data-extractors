@@ -1,6 +1,7 @@
 import mysql from 'mysql2';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import Redis from 'ioredis';
 dotenv.config();
 
 const args = process.argv.slice(2);
@@ -14,11 +15,21 @@ if (args.length > 0) {
     console.log("No arguments provided.");
   }
 
+
+
 console.log(process.env.DB_HOST);
 console.log(process.env.DB_USER);
 console.log(process.env.DB_PASSWORD);
 console.log(process.env.DB_NAME);
 console.log(process.env.DB_PORT);
+
+
+
+const redis = new Redis(process.env.REDIS_PUBLIC_URL);
+await redis.flushall(); // Clear all Redis data
+await redis.quit(); // Close Redis connection
+console.log('Redis flushed and connection closed');
+
 
 const connection = mysql.createConnection({
     host: process.env.DB_HOST,
@@ -33,6 +44,7 @@ connection.connect((err) => {
 
     if (err) {
         console.error('Error connecting: ' + err.stack);
+        process.exit(1);
         return;
     }
     console.log('Connected as id ' + connection.threadId);
@@ -47,6 +59,7 @@ function executeDumpFile(filePath) {
         if (err) {
             console.error('Error reading dump file:', err);
             connection.end(); // Close connection on error
+            process.exit(1);
             return;
         }
         
@@ -57,6 +70,7 @@ function executeDumpFile(filePath) {
             if (error) {
                 console.error('Error executing dump:', error);
                 connection.end(); // Close connection on error
+                process.exit(1);
                 return;
             }
             
@@ -64,7 +78,10 @@ function executeDumpFile(filePath) {
             console.log('Results:', results);
             
             // Close connection after successful execution
-            connection.end();
+            connection.end(() => {
+                console.log('MySQL connection closed');
+                process.exit(0);
+            });
         });
     });
 }

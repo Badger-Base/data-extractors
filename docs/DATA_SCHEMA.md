@@ -35,6 +35,7 @@ This document describes the data schemas for each extractor in the UW-Madison Da
 - `letters_and_science_credits` (BOOLEAN): L&S credit eligible
 - `breadths` (JSON): Breadth requirements
 - `levels` (JSON): Course levels
+- `status` (INT): Denormalized enrollment status (0=closed, 1=waitlisted, 2=open) - aggregated from child sections
 - `extracted_at` (TIMESTAMP): When data was extracted
 
 ### Sections Table
