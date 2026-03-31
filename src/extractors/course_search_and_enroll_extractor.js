@@ -935,7 +935,7 @@ async function getAllCourseSearchAndEnrollData() {
                                 try {
                                     const testResult = await browserPage.evaluate(async () => {
                                         try {
-                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/240/003275', {
+                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1272/240/003275', {
                                                 method: 'GET',
                                                 credentials: 'include',
                                                 headers: {
@@ -996,7 +996,7 @@ async function getAllCourseSearchAndEnrollData() {
                                 try {
                                     const testResult = await browserPage.evaluate(async () => {
                                         try {
-                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/240/003275', {
+                                            const testResponse = await fetch('https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1272/240/003275', {
                                                 method: 'GET',
                                                 credentials: 'include',
                                                 headers: {
@@ -1083,7 +1083,7 @@ async function getAllCourseSearchAndEnrollData() {
                 headers: BASE_HEADERS,
                 method: 'POST',
                 body: JSON.stringify({
-                    "selectedTerm": "1264",
+                    "selectedTerm": "1272",
                     "queryString": "*",
                     "filters": [
                         {
@@ -1127,7 +1127,7 @@ async function getAllCourseSearchAndEnrollData() {
                     headers: BASE_HEADERS,
                     method: 'POST',
                     body: JSON.stringify({
-                        "selectedTerm": "1264",
+                        "selectedTerm": "1272",
                         "queryString": "*",
                         "filters": [
                             {
@@ -1274,7 +1274,7 @@ async function getAllCourseSearchAndEnrollData() {
             } else {
                 const sectionRequests = courseData.map((course) => {
                     return async () => {
-                        const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1264/${course.subjectCode}/${course.courseId}`;
+                        const url = `https://public.enroll.wisc.edu/api/search/v1/enrollmentPackages/1272/${course.subjectCode}/${course.courseId}`;
                         try {
                             const data = await makeRequestWithRetry(url, {
                                 headers: BASE_HEADERS,
