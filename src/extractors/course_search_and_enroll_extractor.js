@@ -1063,7 +1063,7 @@ async function getAllCourseSearchAndEnrollData() {
     
     try {
         if (DEV_CONFIG.TEST_MODE) {
-            log(`🚀 DEVELOPMENT MODE ACTIVE 🚀`, 'SUCCESS');
+            log(`DEVELOPMENT MODE ACTIVE `, 'SUCCESS');
             log(`- Course limit: ${DEV_CONFIG.TEST_COURSE_LIMIT}`);
             log(`- Mock data: ${DEV_CONFIG.USE_MOCK_DATA ? 'ON' : 'OFF'}`);
             log(`- Test tables: ${DEV_CONFIG.USE_TEST_TABLES ? 'ON' : 'OFF'}`);
@@ -1345,10 +1345,10 @@ async function getAllCourseSearchAndEnrollData() {
         generateCSVFiles(courseData, allSectionData, subjectData);
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-        log(`🎉 Data export completed in ${elapsed} seconds! 🎉`, 'SUCCESS');
+        log(`Data export completed in ${elapsed} seconds! `, 'SUCCESS');
         
         if (DEV_CONFIG.TEST_MODE) {
-            log('💡 To run full production mode, set TEST_MODE to false in DEV_CONFIG', 'SUCCESS');
+            log('To run full production mode, set TEST_MODE to false in DEV_CONFIG', 'SUCCESS');
         }
         
     } catch (error) {
