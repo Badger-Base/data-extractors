@@ -10,7 +10,7 @@
     "extract:rmp": "node src/extractors/rmp-extractor.js",
     "preprocess:rmp": "python src/preprocessors/rmp_preprocessor.py",
     "db:import": "node src/utils/run_dumps.js",
-    "test": "node tests/test.js",
+    "test": "node --test tests/*.test.js",
     "test:waf": "node test_waf_challenge.js",
     "waf:token": "node src/utils/get_waf_token.js",
     "waf:update-secret": "node src/utils/update_github_secret.js",
