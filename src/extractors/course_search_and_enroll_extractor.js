@@ -298,7 +298,7 @@ async function processBatch(requests, batchSize = BATCH_SIZE) {
 }
 
 // Helper function to find the smallest enrollment capacity among all sections
-function getSmallestEnrollmentData(sections) {
+export function getSmallestEnrollmentData(sections) {
     if (!sections || !Array.isArray(sections) || sections.length === 0) {
         return null;
     }
@@ -325,7 +325,7 @@ function getSmallestEnrollmentData(sections) {
     return smallestSection ? smallestSection.enrollmentStatus : null;
 }
 
-function formatSectionData(courseSections, courseUUID, coursePrerequisites) {
+export function formatSectionData(courseSections, courseUUID, coursePrerequisites) {
     if (!courseSections || !Array.isArray(courseSections)) {
         return [];
     }
@@ -1386,9 +1386,12 @@ function runQuickTest() {
     });
 }
 
-// Export for testing
-if (process.argv.includes('--quick-test')) {
-    runQuickTest();
-} else {
-    await getAllCourseSearchAndEnrollData();
+// Only run when executed directly
+const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+    if (process.argv.includes('--quick-test')) {
+        runQuickTest();
+    } else {
+        await getAllCourseSearchAndEnrollData();
+    }
 }

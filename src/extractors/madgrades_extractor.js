@@ -1,18 +1,92 @@
 import fs from 'fs';
 import path from 'path';
 
+export function calculateGrade(grades) {
+    let total = 0
+    let totalCount = 0
+    total += grades.aCount * 4
+    totalCount += grades.aCount
+    total += grades.abCount * 3.5
+    totalCount += grades.abCount
+    total += grades.bCount * 3
+    totalCount += grades.bCount
+    total += grades.bcCount * 2.5
+    totalCount += grades.bcCount
+    total += grades.cCount * 2
+    totalCount += grades.cCount
+    total += grades.dCount * 1
+    totalCount += grades.dCount
+    totalCount += grades.fCount
+    return total / totalCount
+}
+
+export function getGradesPercentages(grades) {
+    let totalCount = 0
+    totalCount += grades.aCount
+    totalCount += grades.abCount
+    totalCount += grades.bCount
+    totalCount += grades.bcCount
+    totalCount += grades.cCount
+    totalCount += grades.dCount
+    totalCount += grades.fCount
+    if (totalCount === 0) {
+        return { a: 0, ab: 0, b: 0, bc: 0, c: 0, d: 0, f: 0 }
+    }
+    return {
+        a: grades.aCount / totalCount,
+        ab: grades.abCount / totalCount,
+        b: grades.bCount / totalCount,
+        bc: grades.bcCount / totalCount,
+        c: grades.cCount / totalCount,
+        d: grades.dCount / totalCount,
+        f: grades.fCount / totalCount
+    }
+}
+
+export function findMedianGrade(gradeData) {
+    const allGrades = [];
+    const gradeOrder = ['f', 'd', 'c', 'bc', 'b', 'ab', 'a'];
+
+    for (let grade of gradeOrder) {
+        const count = gradeData[grade + 'Count'] || 0;
+        for (let i = 0; i < count; i++) {
+            allGrades.push(grade.toUpperCase());
+        }
+    }
+
+    const medianIndex = Math.floor(allGrades.length / 2);
+    return allGrades[medianIndex];
+}
+
+export function transformGrades(grades) {
+    const gradeData = getGradesPercentages(grades.cumulative)
+    const median = findMedianGrade(grades.cumulative)
+    return {
+        uuid: grades.courseUuid,
+        cumulative: calculateGrade(grades.cumulative).toFixed(2),
+        mostRecent: grades.courseOfferings && grades.courseOfferings.length > 0
+            ? calculateGrade(grades.courseOfferings[0].cumulative).toFixed(2)
+            : null,
+        median: median,
+        aPercentage: gradeData.a,
+        abPercentage: gradeData.ab,
+        bPercentage: gradeData.b,
+        bcPercentage: gradeData.bc,
+        cPercentage: gradeData.c,
+        dPercentage: gradeData.d,
+        fPercentage: gradeData.f
+    }
+}
+
 async function main() {
-    // Get all courses
     let course_data = [];
-    
+
     let hasNext = true;
     let page = 1;
-    
-    // First, collect all course UUIDs
+
     while (hasNext) {
         console.log(`Fetching page ${page}`);
-        console.log(`https://api.madgrades.com/v1/courses?page=${page}&per_page=500`);
-        
+
         const response = await fetch(`https://api.madgrades.com/v1/courses?page=${page}&per_page=500`, {
             method: "GET",
             headers: {
@@ -20,122 +94,28 @@ async function main() {
                 "Accept": "application/json"
             }
         });
-        
+
         const coursesJson = await response.json();
-        
-        // Extract UUIDs from this page
+
         const data = coursesJson.results.map(course => ({
             uuid: course.uuid,
             number: course.number,
             name: course.name,
             abbreviations: course.subjects.map(subject => subject.abbreviation)
         }));
-        
+
         course_data.push(...data);
-        
+
         if (coursesJson.nextPageUrl === null) {
             hasNext = false;
         }
-        
+
         page++;
     }
-    
-    console.log(`Total courses found: ${course_data}`);
-    
-    // Define batch size before using it
-    const batchSize = 100; // Start aggressive - 100 courses at a time
-    console.log(`Starting aggressive batch processing with ${batchSize} courses per batch...`);
 
-    const ripOutCumulativeGradeAndMostRecentGrade = (grades) => {
-        const gradeData = getGradesPercentages(grades.cumulative)
-        const median = findMedianGrade(grades.cumulative)
-        console.log("median", median)
-        console.log("gradeData", gradeData)
-        return {
-            uuid: grades.courseUuid,
-            cumulative: calculateGrade(grades.cumulative).toFixed(2),
-            mostRecent: grades.courseOfferings && grades.courseOfferings.length > 0 
-                ? calculateGrade(grades.courseOfferings[0].cumulative).toFixed(2)
-                : null,
-            median: median,
-            aPercentage: gradeData.a,
-            abPercentage: gradeData.ab,
-            bPercentage: gradeData.b,
-            bcPercentage: gradeData.bc,
-            cPercentage: gradeData.c,
-            dPercentage: gradeData.d,
-            fPercentage: gradeData.f
-        }
-    }
-    
-    const calculateGrade = (grades) => {
-        let total = 0
-        let totalCount = 0
-        total += grades.aCount * 4
-        totalCount += grades.aCount
-        total += grades.abCount * 3.5
-        totalCount += grades.abCount
-        total += grades.bCount * 3
-        totalCount += grades.bCount
-        total += grades.bcCount * 2.5
-        totalCount += grades.bcCount
-        total += grades.cCount * 2
-        totalCount += grades.cCount
-        total += grades.dCount * 1
-        totalCount += grades.dCount
-        totalCount += grades.fCount
-        return total / totalCount
-    }
+    console.log(`Total courses found: ${course_data.length}`);
 
-    const getGradesPercentages = (grades) => {
-        console.log("grades", grades)
-        let totalCount = 0
-        totalCount += grades.aCount
-        totalCount += grades.abCount
-        totalCount += grades.bCount
-        totalCount += grades.bcCount
-        totalCount += grades.cCount
-        totalCount += grades.dCount
-        totalCount += grades.fCount
-        if (totalCount === 0) {
-            return {
-                a: 0,
-                ab: 0,
-                b: 0,
-                bc: 0,
-                c: 0,
-                d: 0,
-                f: 0
-            }
-        }
-        return {
-            a: grades.aCount / totalCount,
-            ab: grades.abCount / totalCount,
-            b: grades.bCount / totalCount,
-            bc: grades.bcCount / totalCount,
-            c: grades.cCount / totalCount,
-            d: grades.dCount / totalCount,
-            f: grades.fCount / totalCount
-        }
-    }
-
-    function findMedianGrade(gradeData) {
-        // Create array of all grades
-        const allGrades = [];
-        const gradeOrder = ['f', 'd', 'c', 'bc', 'b', 'ab', 'a']; // worst to best
-        
-        for (let grade of gradeOrder) {
-            const count = gradeData[grade + 'Count'] || 0;
-            for (let i = 0; i < count; i++) {
-                allGrades.push(grade.toUpperCase());
-            }
-        }
-        
-        // Find median position
-        const medianIndex = Math.floor(allGrades.length / 2);
-        return allGrades[medianIndex];
-    }
-    
+    const batchSize = 100;
     const startTime = Date.now();
     
     // Now batch process grades for each course UUID
@@ -179,7 +159,7 @@ async function main() {
         // Filter out null results and add to allGrades
         const results = batchResults.filter(result => result !== null);
         results.forEach(result => {
-            result.grades = ripOutCumulativeGradeAndMostRecentGrade(result.grades)
+            result.grades = transformGrades(result.grades)
         })
         allGrades.push(...results);
 
@@ -206,7 +186,7 @@ async function main() {
     return allGrades;
 }
 
-async function parseGrades(allGrades) {
+export async function parseGrades(allGrades) {
     let parsed_grades = []
 
     for (const grade of allGrades) {
@@ -375,5 +355,8 @@ async function generateAndSaveSQLDump(parsed_grades) {
     return sqlContent;
 }
 
-// Run the script
-main().catch(console.error);
+// Run the script only when executed directly
+const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+    main().catch(console.error);
+}
