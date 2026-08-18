@@ -102,7 +102,8 @@ fragment TeacherBookmark_teacher on Teacher { id isSaved }`;
 
 function cleanName(name: string | null | undefined): string {
   if (!name) return "";
-  let cleaned = name.replace(/\s+/g, " ").trim();
+  let cleaned = name.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
   cleaned = cleaned.replace(/\s*\([^)]+\)\s*/g, " ");
   cleaned = cleaned.replace(
     /^(Dr\.?|Professor|Prof\.?|Mr\.?|Ms\.?|Mrs\.?)\s+/i,
