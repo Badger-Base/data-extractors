@@ -1,7 +1,6 @@
 import * as fuzzball from "fuzzball";
-import { query, withTransaction } from "../db.js";
+import { query } from "../db.js";
 import config from "../config.js";
-import type pg from "pg";
 
 const HEADERS = config.apis.rateMyProfessor.headers;
 const SCHOOL_ID = config.apis.rateMyProfessor.schoolId;
@@ -263,7 +262,7 @@ function resolveNames(
 
 // ── Main entry point ────────────────────────────────────────────────
 
-export async function extractAndLoadRmp(): Promise<void> {
+export async function extractRmp(): Promise<void> {
   const startTime = Date.now();
   console.log("[rmp] Starting extraction...");
 
@@ -280,41 +279,64 @@ export async function extractAndLoadRmp(): Promise<void> {
   // 3. Fuzzy match in memory — resolve RMP names to instructor names
   const resolved = resolveNames(teachers, courseInstructors);
 
-  // 4. Insert everything in one transaction — names are already matched
-  console.log(`[rmp] Inserting ${resolved.length} matched records...`);
-
-  await withTransaction(async (client: pg.PoolClient) => {
-    for (const t of resolved) {
-      await client.query(
-        `INSERT INTO rmp_cleaned (
-           full_name, avg_rating, avg_difficulty, num_ratings,
-           would_take_again_percent, legacy_id
-         ) VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (full_name) DO UPDATE SET
-           avg_rating = EXCLUDED.avg_rating,
-           avg_difficulty = EXCLUDED.avg_difficulty,
-           num_ratings = EXCLUDED.num_ratings,
-           would_take_again_percent = EXCLUDED.would_take_again_percent,
-           legacy_id = EXCLUDED.legacy_id`,
-        [
-          t.fullName,
-          t.avgRating,
-          t.avgDifficulty,
-          t.numRatings,
-          t.wouldTakeAgainPercent,
-          t.legacyId,
-        ]
-      );
+  // 4. Deduplicate by full_name — keep the record with more ratings
+  const deduped = new Map<string, ResolvedTeacher>();
+  for (const t of resolved) {
+    const existing = deduped.get(t.fullName);
+    if (!existing || t.numRatings > existing.numRatings) {
+      deduped.set(t.fullName, t);
     }
-  });
+  }
+  const unique = [...deduped.values()];
+  console.log(`[rmp] Deduplicated: ${resolved.length} → ${unique.length} unique names`);
+
+  // 5. Generate SQL dump
+  console.log(`[rmp] Generating SQL dump for ${unique.length} records...`);
+
+  const { SqlWriter, esc } = await import("../utils/sql-writer.js");
+  const sql = new SqlWriter();
+
+  sql.comment("RateMyProfessors Cleaned Data Dump");
+  sql.comment(`Generated ${new Date().toISOString()}`);
+  sql.comment(`${unique.length} teacher records`);
+  sql.blank();
+
+  sql.comment("Teardown — only rmp table");
+  sql.raw("TRUNCATE rmp_cleaned CASCADE;");
+  sql.blank();
+
+  const columns = [
+    "full_name", "avg_rating", "avg_difficulty", "num_ratings",
+    "would_take_again_percent", "legacy_id",
+  ];
+  const rows = unique.map((t) => [
+    esc(t.fullName), esc(t.avgRating), esc(t.avgDifficulty), esc(t.numRatings),
+    esc(t.wouldTakeAgainPercent), esc(t.legacyId),
+  ]);
+
+  // Use ON CONFLICT since full_name is UNIQUE
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const valuesStr = chunk.map((vals) => `  (${vals.join(", ")})`).join(",\n");
+    sql.raw(
+      `INSERT INTO rmp_cleaned (${columns.join(", ")}) VALUES\n${valuesStr}\nON CONFLICT (full_name) DO UPDATE SET\n  avg_rating = EXCLUDED.avg_rating,\n  avg_difficulty = EXCLUDED.avg_difficulty,\n  num_ratings = EXCLUDED.num_ratings,\n  would_take_again_percent = EXCLUDED.would_take_again_percent,\n  legacy_id = EXCLUDED.legacy_id;`
+    );
+    sql.blank();
+  }
+
+  const filePath = await sql.writeTo("rmp.sql");
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[rmp] Done: ${resolved.length} records in ${elapsed}s`);
+  console.log(`[rmp] Done: ${unique.length} records written to ${filePath} in ${elapsed}s`);
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  extractAndLoadRmp().catch((err) => {
-    console.error("RMP extraction failed:", err);
-    process.exit(1);
-  });
+  const { end } = await import("../db.js");
+  extractRmp()
+    .then(() => end())
+    .catch((err) => {
+      console.error("RMP extraction failed:", err);
+      process.exit(1);
+    });
 }

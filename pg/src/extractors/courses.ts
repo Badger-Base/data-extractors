@@ -1,8 +1,6 @@
 import puppeteer, { type Browser, type Page } from "puppeteer";
 import { v4 as uuidv4 } from "uuid";
-import { withTransaction } from "../db.js";
 import config from "../config.js";
-import type pg from "pg";
 
 const { testMode: TEST_MODE, testCourseLimit: TEST_COURSE_LIMIT } = config.development;
 const RATE_LIMIT_DELAY = TEST_MODE ? 50 : config.rateLimiting.delay;
@@ -97,6 +95,7 @@ interface CourseRow {
 
 export interface SectionRow {
   sectionId: string;
+  sectionUuid: string;
   courseUuid: string;
   status: string;
   availableSeats: number;
@@ -110,8 +109,7 @@ export interface SectionRow {
 }
 
 export interface MeetingRow {
-  sectionId: string;
-  courseUuid: string;
+  sectionUuid: string;
   meetingType: string;
   meetingNumber: number | null;
   sectionNumber: string | null;
@@ -276,7 +274,7 @@ export function transformCourse(hit: CourseHit): CourseRow {
     title: hit.title ?? null,
     description: hit.description ?? null,
     enrollmentPrerequisites: hit.enrollmentPrerequisites ?? null,
-    lettersAndScienceCredits: hit.lettersAndScienceCredits?.code === "Y",
+    lettersAndScienceCredits: !!hit.lettersAndScienceCredits?.code,
     generalEducation: hit.generalEd?.code ?? null,
     ethnicStudies: !!hit.ethnicStudies?.code,
     socialScience: hasBreadth("S"),
@@ -313,8 +311,13 @@ export function formatSections(
   const normalizePrereq = (p: string | null | undefined) =>
     (p ?? "").trim().toLowerCase().replace(/\s+/g, " ").replace(/^none$/i, "");
   const normalizedCoursePrereq = normalizePrereq(coursePrereqs);
+  const seenSectionIds = new Set<string>();
 
   for (const pkg of packages) {
+    const sectionId = String(pkg.enrollmentClassNumber);
+    if (seenSectionIds.has(sectionId)) continue;
+    seenSectionIds.add(sectionId);
+    const sectionUuid = uuidv4();
     const primary = pkg.sections?.[0];
     const instructors =
       primary?.instructors?.map((i) => `${i.name?.first ?? ""} ${i.name?.last ?? ""}`.trim()).filter(Boolean) ?? [];
@@ -336,7 +339,8 @@ export function formatSections(
     const status = statusRaw === "OPEN" || statusRaw === "WAITLISTED" || statusRaw === "CLOSED" ? statusRaw : "CLOSED";
 
     sections.push({
-      sectionId: pkg.enrollmentClassNumber,
+      sectionId,
+      sectionUuid,
       courseUuid,
       status,
       availableSeats: pkg.packageEnrollmentStatus?.availableSeats ?? 0,
@@ -354,8 +358,7 @@ export function formatSections(
       if (!classMeeting) continue;
 
       const meetingData: MeetingRow = {
-        sectionId: pkg.enrollmentClassNumber,
-        courseUuid,
+        sectionUuid,
         meetingType: nested.type,
         meetingNumber: classMeeting.meetingOrExamNumber ? parseInt(classMeeting.meetingOrExamNumber, 10) : null,
         sectionNumber: nested.sectionNumber ?? null,
@@ -505,135 +508,11 @@ async function fetchSections(subjectCode: string, courseId: string): Promise<Enr
   );
 }
 
-// ── Database insertion ──────────────────────────────────────────────
-
-async function insertSubjects(client: pg.PoolClient, subjects: Map<string, string | null>): Promise<void> {
-  for (const [code, footnotes] of subjects) {
-    await client.query(
-      `INSERT INTO subjects (subject_code, footnotes) VALUES ($1, $2)
-       ON CONFLICT (subject_code) DO NOTHING`,
-      [code, footnotes]
-    );
-  }
-}
-
-async function insertCourse(client: pg.PoolClient, course: CourseRow): Promise<number> {
-  const result = await client.query<{ id: number }>(
-    `INSERT INTO courses (
-       course_id, course_uuid, subject_code, course_designation, full_course_designation,
-       course_title, catalog_number, course_description, enrollment_prerequisites,
-       minimum_credits, maximum_credits, letters_and_science_credits,
-       ethnic_studies, social_science, humanities, biological_science,
-       physical_science, natural_science, literature,
-       general_education, level, typically_offered,
-       workplace_experience_description, grading_basis_description,
-       open_to_first_year, repeatable_for_credit
-     ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
-     ) RETURNING id`,
-    [
-      course.courseId,
-      course.courseUuid,
-      course.subjectCode,
-      course.courseDesignation,
-      course.fullCourseDesignation,
-      course.title,
-      course.catalogNumber,
-      course.description,
-      course.enrollmentPrerequisites,
-      course.minimumCredits,
-      course.maximumCredits,
-      course.lettersAndScienceCredits,
-      course.ethnicStudies,
-      course.socialScience,
-      course.humanities,
-      course.biologicalScience,
-      course.physicalScience,
-      course.naturalScience,
-      course.literature,
-      course.generalEducation,
-      course.level,
-      course.typicallyOffered,
-      course.workplaceExperienceDescription,
-      course.gradingBasisDescription,
-      course.openToFirstYear,
-      course.repeatableForCredit,
-    ]
-  );
-  return result.rows[0].id;
-}
-
-async function insertSection(client: pg.PoolClient, section: SectionRow, courseRef: number): Promise<number> {
-  const result = await client.query<{ id: number }>(
-    `INSERT INTO sections (
-       section_id, course_ref, status, available_seats, waitlist_total,
-       capacity, enrolled, instruction_mode, is_asynchronous, section_requisites
-     ) VALUES ($1,$2,$3::section_status,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-    [
-      section.sectionId,
-      courseRef,
-      section.status,
-      section.availableSeats,
-      section.waitlistTotal,
-      section.capacity,
-      section.enrolled,
-      section.instructionMode,
-      section.isAsynchronous,
-      section.sectionRequisites,
-    ]
-  );
-  return result.rows[0].id;
-}
-
-async function insertInstructors(client: pg.PoolClient, sectionPk: number, instructors: string[]): Promise<void> {
-  for (const name of instructors) {
-    if (!name.trim()) continue;
-    await client.query(
-      `INSERT INTO section_instructors (section_id, instructor_name) VALUES ($1, $2)`,
-      [sectionPk, name]
-    );
-  }
-}
-
-async function insertMeeting(client: pg.PoolClient, meeting: MeetingRow, sectionPk: number): Promise<void> {
-  await client.query(
-    `INSERT INTO section_meetings (
-       section_id, meeting_number, section_number, meeting_type, meeting_days,
-       start_time, end_time, building_name, room, location,
-       monday_meeting_start, monday_meeting_end,
-       tuesday_meeting_start, tuesday_meeting_end,
-       wednesday_meeting_start, wednesday_meeting_end,
-       thursday_meeting_start, thursday_meeting_end,
-       friday_meeting_start, friday_meeting_end
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-    [
-      sectionPk,
-      meeting.meetingNumber,
-      meeting.sectionNumber,
-      meeting.meetingType,
-      meeting.meetingDays,
-      meeting.startTime,
-      meeting.endTime,
-      meeting.buildingName,
-      meeting.room,
-      meeting.location,
-      meeting.mondayMeetingStart,
-      meeting.mondayMeetingEnd,
-      meeting.tuesdayMeetingStart,
-      meeting.tuesdayMeetingEnd,
-      meeting.wednesdayMeetingStart,
-      meeting.wednesdayMeetingEnd,
-      meeting.thursdayMeetingStart,
-      meeting.thursdayMeetingEnd,
-      meeting.fridayMeetingStart,
-      meeting.fridayMeetingEnd,
-    ]
-  );
-}
+// ── SQL dump generation ────────────────────────────────────────────
 
 // ── Main entry point ────────────────────────────────────────────────
 
-export async function extractAndLoadCourses(): Promise<void> {
+export async function extractCourses(): Promise<void> {
   const startTime = Date.now();
   log("Starting course extraction...");
 
@@ -672,7 +551,7 @@ export async function extractAndLoadCourses(): Promise<void> {
 
       const results = await Promise.allSettled(
         batch.map(async (course, idx) => {
-          await delay(idx * RATE_LIMIT_DELAY);
+          await delay(idx * 10);
           const packages = await fetchSections(course.subjectCode, course.courseId);
           return { courseUuid: course.courseUuid, prereqs: course.enrollmentPrerequisites, packages };
         })
@@ -688,7 +567,7 @@ export async function extractAndLoadCourses(): Promise<void> {
         }
       }
 
-      if (i + BATCH_SIZE < courseRows.length) await delay(RATE_LIMIT_DELAY * 2);
+      if (i + BATCH_SIZE < courseRows.length) await delay(200);
     }
 
     log(`Sections fetched: ${successCount} success, ${errorCount} errors`, "SUCCESS");
@@ -700,46 +579,131 @@ export async function extractAndLoadCourses(): Promise<void> {
       sectionsByCourse.set(courseUuid, formatted);
     }
 
-    // Insert everything in a single transaction
-    await withTransaction(async (client) => {
-      log("Inserting subjects...");
-      await insertSubjects(client, subjectMap);
+    // Generate SQL dump
+    log("Generating SQL dump...");
+    const { SqlWriter, esc, escEnum } = await import("../utils/sql-writer.js");
+    const sql = new SqlWriter();
 
-      log("Inserting courses, sections, instructors, and meetings...");
-      let courseCount = 0;
-      let sectionCount = 0;
-      let instructorCount = 0;
-      let meetingCount = 0;
+    sql.comment("BadgerBase Course Data Dump");
+    sql.comment(`Generated ${new Date().toISOString()}`);
+    sql.comment(`${courseRows.length} courses, ${allSections.length} section sets`);
+    sql.blank();
 
-      for (const course of courseRows) {
-        const coursePk = await insertCourse(client, course);
-        courseCount++;
+    sql.comment("Teardown — only course-related tables, leaves rmp/madgrades intact");
+    sql.raw("TRUNCATE section_meetings, section_instructors, sections, courses, subjects CASCADE;");
+    sql.blank();
 
-        const data = sectionsByCourse.get(course.courseUuid);
-        if (!data) continue;
+    // Subjects
+    sql.comment("Subjects");
+    sql.insertBatch(
+      "subjects",
+      ["subject_code", "footnotes"],
+      [...subjectMap.entries()].map(([code, fn]) => [esc(code), esc(fn)])
+    );
 
-        // Build a map from sectionId -> sectionPk for meeting FK resolution
-        const sectionPkMap = new Map<string, number>();
+    // Courses
+    sql.comment("Courses");
+    const courseColumns = [
+      "course_id", "course_uuid", "subject_code", "course_designation",
+      "full_course_designation", "course_title", "catalog_number",
+      "course_description", "enrollment_prerequisites",
+      "minimum_credits", "maximum_credits", "letters_and_science_credits",
+      "ethnic_studies", "social_science", "humanities", "biological_science",
+      "physical_science", "natural_science", "literature",
+      "general_education", "level", "typically_offered",
+      "workplace_experience_description", "grading_basis_description",
+      "open_to_first_year", "repeatable_for_credit",
+    ];
+    sql.insertBatch(
+      "courses",
+      courseColumns,
+      courseRows.map((c) => [
+        esc(c.courseId), esc(c.courseUuid), esc(c.subjectCode), esc(c.courseDesignation),
+        esc(c.fullCourseDesignation), esc(c.title), esc(c.catalogNumber),
+        esc(c.description), esc(c.enrollmentPrerequisites),
+        esc(c.minimumCredits), esc(c.maximumCredits), esc(c.lettersAndScienceCredits),
+        esc(c.ethnicStudies), esc(c.socialScience), esc(c.humanities), esc(c.biologicalScience),
+        esc(c.physicalScience), esc(c.naturalScience), esc(c.literature),
+        esc(c.generalEducation), esc(c.level), esc(c.typicallyOffered),
+        esc(c.workplaceExperienceDescription), esc(c.gradingBasisDescription),
+        esc(c.openToFirstYear), esc(c.repeatableForCredit),
+      ])
+    );
 
-        for (const section of data.sections) {
-          const sectionPk = await insertSection(client, section, coursePk);
-          sectionPkMap.set(section.sectionId, sectionPk);
-          sectionCount++;
+    // Sections — subquery for course_ref FK, section_uuid for downstream lookups
+    sql.comment("Sections");
+    const sectionColumns = [
+      "section_id", "section_uuid", "course_ref", "status", "available_seats", "waitlist_total",
+      "capacity", "enrolled", "instruction_mode", "is_asynchronous", "section_requisites",
+    ];
+    const sectionRows: string[][] = [];
+    for (const course of courseRows) {
+      const data = sectionsByCourse.get(course.courseUuid);
+      if (!data) continue;
+      const courseRefSub = `(SELECT id FROM courses WHERE course_uuid = ${esc(course.courseUuid)})`;
+      for (const s of data.sections) {
+        sectionRows.push([
+          esc(s.sectionId), esc(s.sectionUuid), courseRefSub, escEnum(s.status, "section_status"),
+          esc(s.availableSeats), esc(s.waitlistTotal),
+          esc(s.capacity), esc(s.enrolled), esc(s.instructionMode),
+          esc(s.isAsynchronous), esc(s.sectionRequisites),
+        ]);
+      }
+    }
+    sql.insertBatch("sections", sectionColumns, sectionRows);
 
-          await insertInstructors(client, sectionPk, section.instructors);
-          instructorCount += section.instructors.filter((n) => n.trim()).length;
-        }
-
-        for (const meeting of data.meetings) {
-          const sectionPk = sectionPkMap.get(meeting.sectionId);
-          if (sectionPk === undefined) continue;
-          await insertMeeting(client, meeting, sectionPk);
-          meetingCount++;
+    // Instructors — resolve section FK via section_uuid
+    sql.comment("Section Instructors");
+    const instructorRows: string[][] = [];
+    for (const course of courseRows) {
+      const data = sectionsByCourse.get(course.courseUuid);
+      if (!data) continue;
+      for (const s of data.sections) {
+        const sectionRefSub = `(SELECT id FROM sections WHERE section_uuid = ${esc(s.sectionUuid)})`;
+        for (const name of s.instructors) {
+          if (name.trim()) {
+            instructorRows.push([sectionRefSub, esc(name)]);
+          }
         }
       }
+    }
+    sql.insertBatch("section_instructors", ["section_id", "instructor_name"], instructorRows);
 
-      log(`Inserted: ${courseCount} courses, ${sectionCount} sections, ${instructorCount} instructors, ${meetingCount} meetings`, "SUCCESS");
-    });
+    // Meetings — resolve section FK via section_uuid
+    sql.comment("Section Meetings");
+    const meetingColumns = [
+      "section_id", "meeting_number", "section_number", "meeting_type", "meeting_days",
+      "start_time", "end_time", "building_name", "room", "location",
+      "monday_meeting_start", "monday_meeting_end",
+      "tuesday_meeting_start", "tuesday_meeting_end",
+      "wednesday_meeting_start", "wednesday_meeting_end",
+      "thursday_meeting_start", "thursday_meeting_end",
+      "friday_meeting_start", "friday_meeting_end",
+    ];
+    const meetingRows: string[][] = [];
+    for (const course of courseRows) {
+      const data = sectionsByCourse.get(course.courseUuid);
+      if (!data) continue;
+      for (const m of data.meetings) {
+        const sectionRefSub = `(SELECT id FROM sections WHERE section_uuid = ${esc(m.sectionUuid)})`;
+        meetingRows.push([
+          sectionRefSub, esc(m.meetingNumber), esc(m.sectionNumber),
+          esc(m.meetingType), esc(m.meetingDays),
+          esc(m.startTime), esc(m.endTime),
+          esc(m.buildingName), esc(m.room), esc(m.location),
+          esc(m.mondayMeetingStart), esc(m.mondayMeetingEnd),
+          esc(m.tuesdayMeetingStart), esc(m.tuesdayMeetingEnd),
+          esc(m.wednesdayMeetingStart), esc(m.wednesdayMeetingEnd),
+          esc(m.thursdayMeetingStart), esc(m.thursdayMeetingEnd),
+          esc(m.fridayMeetingStart), esc(m.fridayMeetingEnd),
+        ]);
+      }
+    }
+    sql.insertBatch("section_meetings", meetingColumns, meetingRows);
+
+    const filePath = await sql.writeTo("courses.sql");
+    log(`SQL dump written to ${filePath}`, "SUCCESS");
+    log(`${courseRows.length} courses, ${sectionRows.length} sections, ${instructorRows.length} instructors, ${meetingRows.length} meetings`);
   } finally {
     await closeBrowser();
   }
@@ -749,7 +713,7 @@ export async function extractAndLoadCourses(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  extractAndLoadCourses().catch((err) => {
+  extractCourses().catch((err) => {
     console.error("Course extraction failed:", err);
     process.exit(1);
   });

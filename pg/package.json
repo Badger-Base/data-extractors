@@ -9,6 +9,7 @@
     "extract:courses": "tsx src/extractors/courses.ts",
     "extract:madgrades": "tsx src/extractors/madgrades.ts",
     "extract:rmp": "tsx src/extractors/rmp.ts",
+    "load": "tsx src/run-dumps.ts",
     "db:init": "tsx src/db-init.ts",
     "waf-token": "tsx src/utils/get-waf-token.ts",
     "test": "node --import tsx --test tests/*.test.ts"

@@ -1,29 +1,51 @@
-import { withTransaction, truncateAll, end } from "./db.js";
-import { extractAndLoadCourses } from "./extractors/courses.js";
-import { extractAndLoadMadgrades } from "./extractors/madgrades.js";
-import { extractAndLoadRmp } from "./extractors/rmp.js";
+import fs from "fs/promises";
+import path from "path";
+import { extractCourses } from "./extractors/courses.js";
+import { extractMadgrades } from "./extractors/madgrades.js";
+import { extractRmp } from "./extractors/rmp.js";
+import { withTransaction, end } from "./db.js";
+import type pg from "pg";
+
+const SQL_DIR = path.resolve(import.meta.dirname, "../data/sql");
+
+async function loadDump(client: pg.PoolClient, file: string) {
+  const filePath = path.join(SQL_DIR, file);
+  const sql = await fs.readFile(filePath, "utf-8");
+  const size = (sql.length / 1024).toFixed(0);
+  console.log(`Executing ${file} (${size} KB)...`);
+  const t = Date.now();
+  await client.query(sql);
+  console.log(`  Done in ${((Date.now() - t) / 1000).toFixed(1)}s`);
+}
 
 async function seed() {
   const startTime = Date.now();
   console.log("Starting full ETL pipeline...\n");
 
-  await withTransaction(async (client) => {
-    console.log("Truncating all tables...");
-    await truncateAll(client);
-    console.log("Tables truncated.\n");
-  });
-
-  // Courses must run first — populates section_instructors,
-  // which the RMP extractor needs for fuzzy name matching
-  await extractAndLoadCourses();
+  // Extract courses + madgrades (no DB dependency)
+  await extractCourses();
+  console.log("");
+  await extractMadgrades();
   console.log("");
 
-  // RMP needs section_instructors to exist for name matching.
-  // Madgrades has no such dependency, so run it in parallel with RMP.
-  await Promise.all([
-    extractAndLoadMadgrades(),
-    extractAndLoadRmp(),
-  ]);
+  // Load courses dump so RMP can read instructor names for fuzzy matching
+  console.log("Loading courses dump for RMP name matching...");
+  await withTransaction(async (client) => {
+    await loadDump(client, "courses.sql");
+  });
+  console.log("");
+
+  // Extract RMP (reads section_instructors from DB, writes rmp.sql)
+  await extractRmp();
+  console.log("");
+
+  // Final load — each dump truncates only its own tables
+  console.log("── Loading all dumps ──────────────────────────────\n");
+  await withTransaction(async (client) => {
+    await loadDump(client, "courses.sql");
+    await loadDump(client, "madgrades.sql");
+    await loadDump(client, "rmp.sql");
+  });
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\nETL pipeline complete in ${elapsed}s`);

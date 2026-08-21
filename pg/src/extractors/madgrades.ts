@@ -1,9 +1,6 @@
-import { withTransaction } from "../db.js";
 import config from "../config.js";
-import type pg from "pg";
 
 const API_TOKEN = config.apis.madgrades.token;
-const BATCH_SIZE = config.apis.madgrades.batchSize;
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -139,93 +136,124 @@ async function fetchGrades(uuid: string): Promise<GradesResponse | null> {
   }
 }
 
+// ── Concurrency-limited fetch ──────────────────────────────────────
+
+const CONCURRENCY = 200;
+
+async function fetchAllGrades(
+  courses: MadgradesCourse[]
+): Promise<Map<string, GradesResponse | null>> {
+  const results = new Map<string, GradesResponse | null>();
+  let completed = 0;
+  let idx = 0;
+  const lastLog = { count: 0 };
+
+  return new Promise((resolve, reject) => {
+    function launch() {
+      while (idx < courses.length && activeCount() < CONCURRENCY) {
+        const course = courses[idx++];
+        fetchGrades(course.uuid)
+          .then((res) => {
+            results.set(course.uuid, res);
+            completed++;
+            if (completed - lastLog.count >= 500 || completed === courses.length) {
+              console.log(`[madgrades] Fetched grades: ${completed}/${courses.length}`);
+              lastLog.count = completed;
+            }
+            launch();
+          })
+          .catch(reject);
+      }
+      if (completed === courses.length) resolve(results);
+    }
+
+    function activeCount() {
+      return idx - completed;
+    }
+
+    launch();
+  });
+}
+
 // ── Main entry point ────────────────────────────────────────────────
 
-export async function extractAndLoadMadgrades(): Promise<void> {
+export async function extractMadgrades(): Promise<void> {
   const startTime = Date.now();
   console.log("[madgrades] Starting extraction...");
 
   const courses = await fetchAllCourseUuids();
 
+  console.log(`[madgrades] Fetching grades for ${courses.length} courses (concurrency: ${CONCURRENCY})...`);
+  const gradeMap = await fetchAllGrades(courses);
+
   const allParsed: ParsedGrade[] = [];
 
-  for (let i = 0; i < courses.length; i += BATCH_SIZE) {
-    const batch = courses.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(courses.length / BATCH_SIZE);
-    console.log(`[madgrades] Processing grades batch ${batchNum}/${totalBatches}...`);
+  for (const course of courses) {
+    const grades = gradeMap.get(course.uuid);
+    if (!grades?.cumulative) continue;
 
-    const results = await Promise.all(batch.map((c) => fetchGrades(c.uuid)));
+    const pct = getGradePercentages(grades.cumulative);
+    const cumulativeGpa = calculateGrade(grades.cumulative);
+    const mostRecentGpa =
+      grades.courseOfferings?.length ? calculateGrade(grades.courseOfferings[0].cumulative) : null;
+    const median = findMedianGrade(grades.cumulative);
 
-    for (let j = 0; j < batch.length; j++) {
-      const course = batch[j];
-      const grades = results[j];
-      if (!grades?.cumulative) continue;
-
-      const pct = getGradePercentages(grades.cumulative);
-      const cumulativeGpa = calculateGrade(grades.cumulative);
-      const mostRecentGpa =
-        grades.courseOfferings?.length ? calculateGrade(grades.courseOfferings[0].cumulative) : null;
-      const median = findMedianGrade(grades.cumulative);
-
-      for (const subject of course.subjects) {
-        allParsed.push({
-          courseName: `${subject.abbreviation} ${course.number}`,
-          courseUuid: grades.courseUuid,
-          medianGrade: median,
-          aPercentage: pct.a,
-          abPercentage: pct.ab,
-          bPercentage: pct.b,
-          bcPercentage: pct.bc,
-          cPercentage: pct.c,
-          dPercentage: pct.d,
-          fPercentage: pct.f,
-          cumulativeGpa,
-          mostRecentGpa,
-        });
-      }
-    }
-
-    if (i + BATCH_SIZE < courses.length) {
-      await new Promise((r) => setTimeout(r, 50));
+    for (const subject of course.subjects) {
+      allParsed.push({
+        courseName: `${subject.abbreviation} ${course.number}`,
+        courseUuid: grades.courseUuid,
+        medianGrade: median,
+        aPercentage: pct.a,
+        abPercentage: pct.ab,
+        bPercentage: pct.b,
+        bcPercentage: pct.bc,
+        cPercentage: pct.c,
+        dPercentage: pct.d,
+        fPercentage: pct.f,
+        cumulativeGpa,
+        mostRecentGpa,
+      });
     }
   }
 
-  console.log(`[madgrades] Inserting ${allParsed.length} grade records...`);
+  console.log(`[madgrades] Generating SQL dump for ${allParsed.length} grade records...`);
 
-  await withTransaction(async (client: pg.PoolClient) => {
-    for (const g of allParsed) {
-      await client.query(
-        `INSERT INTO madgrades_course_grades (
-           course_name, course_uuid, median_grade,
-           a_percentage, ab_percentage, b_percentage, bc_percentage,
-           c_percentage, d_percentage, f_percentage,
-           cumulative_gpa, most_recent_gpa
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [
-          g.courseName,
-          g.courseUuid,
-          g.medianGrade,
-          g.aPercentage,
-          g.abPercentage,
-          g.bPercentage,
-          g.bcPercentage,
-          g.cPercentage,
-          g.dPercentage,
-          g.fPercentage,
-          g.cumulativeGpa,
-          g.mostRecentGpa,
-        ]
-      );
-    }
-  });
+  const { SqlWriter, esc } = await import("../utils/sql-writer.js");
+  const sql = new SqlWriter();
 
+  sql.comment("Madgrades Course Grades Dump");
+  sql.comment(`Generated ${new Date().toISOString()}`);
+  sql.comment(`${allParsed.length} grade records`);
+  sql.blank();
+
+  sql.comment("Teardown — only madgrades table");
+  sql.raw("TRUNCATE madgrades_course_grades CASCADE;");
+  sql.blank();
+
+  const columns = [
+    "course_name", "course_uuid", "median_grade",
+    "a_percentage", "ab_percentage", "b_percentage", "bc_percentage",
+    "c_percentage", "d_percentage", "f_percentage",
+    "cumulative_gpa", "most_recent_gpa",
+  ];
+  sql.insertBatch(
+    "madgrades_course_grades",
+    columns,
+    allParsed.map((g) => [
+      esc(g.courseName), esc(g.courseUuid), esc(g.medianGrade),
+      esc(g.aPercentage), esc(g.abPercentage), esc(g.bPercentage), esc(g.bcPercentage),
+      esc(g.cPercentage), esc(g.dPercentage), esc(g.fPercentage),
+      esc(g.cumulativeGpa), esc(g.mostRecentGpa),
+    ])
+  );
+
+  const filePath = await sql.writeTo("madgrades.sql");
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[madgrades] Done: ${allParsed.length} records in ${elapsed}s`);
+  console.log(`[madgrades] Done: ${allParsed.length} records written to ${filePath} in ${elapsed}s`);
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  extractAndLoadMadgrades().catch((err) => {
+  extractMadgrades().catch((err) => {
     console.error("Madgrades extraction failed:", err);
     process.exit(1);
   });

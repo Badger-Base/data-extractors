@@ -27,7 +27,7 @@ export const config = {
       baseUrl: "https://api.madgrades.com/v1",
       token: process.env.MADGRADES_API_TOKEN ?? "",
       perPage: 500,
-      batchSize: 100,
+      batchSize: 500,
     },
     rateMyProfessor: {
       baseUrl: "https://www.ratemyprofessors.com/graphql",
