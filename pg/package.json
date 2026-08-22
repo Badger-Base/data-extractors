@@ -11,6 +11,8 @@
     "extract:rmp": "tsx src/extractors/rmp.ts",
     "load": "tsx src/run-dumps.ts",
     "db:init": "tsx src/db-init.ts",
+    "notify": "tsx src/notify.ts",
+    "flush-cache": "tsx src/flush-cache.ts",
     "waf-token": "tsx src/utils/get-waf-token.ts",
     "test": "node --import tsx --test tests/*.test.ts"
   },
