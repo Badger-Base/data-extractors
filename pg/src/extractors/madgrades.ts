@@ -1,6 +1,7 @@
 import config from "../config.js";
+import { getMadgradesToken } from "../utils/get-madgrades-token.js";
 
-const API_TOKEN = config.apis.madgrades.token;
+let API_TOKEN = config.apis.madgrades.token;
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -182,8 +183,8 @@ export async function extractMadgrades(): Promise<void> {
   console.log("[madgrades] Starting extraction...");
 
   if (!API_TOKEN) {
-    console.error("[madgrades] MADGRADES_API_TOKEN is not set — cannot fetch grades");
-    process.exit(1);
+    console.log("[madgrades] No MADGRADES_API_TOKEN set, fetching from madgrades.com...");
+    API_TOKEN = await getMadgradesToken();
   }
 
   const courses = await fetchAllCourseUuids();
