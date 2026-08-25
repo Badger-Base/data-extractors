@@ -23,41 +23,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pg/package-lock.json
 
-      - name: Install Puppeteer system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            ca-certificates fonts-liberation libasound2t64 libatk-bridge2.0-0 \
-            libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 \
-            libfontconfig1 libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 \
-            libnss3 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 \
-            libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
-            libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 \
-            libxtst6 lsb-release wget xdg-utils
-
       - name: Install dependencies
         working-directory: pg
         run: npm ci
-
-      - name: Extract courses
-        working-directory: pg
-        env:
-          SELECTED_TERM: ${{ secrets.SELECTED_TERM }}
-        run: npm run extract:courses
 
       - name: Extract madgrades
         working-directory: pg
         env:
           MADGRADES_API_TOKEN: ${{ secrets.MADGRADES_API_TOKEN }}
-          GITHUB_USERNAME: ${{ secrets.GH_USERNAME }}
-          GITHUB_PASSWORD: ${{ secrets.GH_PASSWORD }}
         run: npm run extract:madgrades
-
-      - name: Load courses for RMP name matching
-        working-directory: pg
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx tsx src/run-dumps.ts courses.sql
 
       - name: Extract RMP
         working-directory: pg
@@ -65,11 +39,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npm run extract:rmp
 
-      - name: Load all dumps
+      - name: Load madgrades and RMP
         working-directory: pg
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npm run load
+        run: npx tsx src/run-dumps.ts madgrades.sql rmp.sql
 
       - name: Flush Redis cache
         working-directory: pg
