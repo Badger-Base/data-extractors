@@ -49,6 +49,8 @@ jobs:
         working-directory: pg
         env:
           MADGRADES_API_TOKEN: ${{ secrets.MADGRADES_API_TOKEN }}
+          GITHUB_USERNAME: ${{ secrets.GH_USERNAME }}
+          GITHUB_PASSWORD: ${{ secrets.GH_PASSWORD }}
         run: npm run extract:madgrades
 
       - name: Load courses for RMP name matching

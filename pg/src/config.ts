@@ -21,7 +21,7 @@ export const config = {
         "Sec-GPC": "1",
         Referer: "https://public.enroll.wisc.edu/search",
       } as Record<string, string>,
-      selectedTerm: process.env.SELECTED_TERM ?? "1272",
+      selectedTerm: process.env.SELECTED_TERM || "1272",
     },
     madgrades: {
       baseUrl: "https://api.madgrades.com/v1",

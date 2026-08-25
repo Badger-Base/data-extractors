@@ -1,6 +1,7 @@
 import config from "../config.js";
+import { getMadgradesToken } from "../utils/get-madgrades-token.js";
 
-const API_TOKEN = config.apis.madgrades.token;
+let API_TOKEN = config.apis.madgrades.token;
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -181,6 +182,11 @@ export async function extractMadgrades(): Promise<void> {
   const startTime = Date.now();
   console.log("[madgrades] Starting extraction...");
 
+  if (!API_TOKEN) {
+    console.log("[madgrades] No MADGRADES_API_TOKEN set, fetching fresh token via GitHub OAuth...");
+    API_TOKEN = await getMadgradesToken();
+  }
+
   const courses = await fetchAllCourseUuids();
 
   console.log(`[madgrades] Fetching grades for ${courses.length} courses (concurrency: ${CONCURRENCY})...`);
@@ -214,6 +220,11 @@ export async function extractMadgrades(): Promise<void> {
         mostRecentGpa,
       });
     }
+  }
+
+  if (allParsed.length === 0) {
+    console.error("[madgrades] Aborting: 0 grade records — refusing to generate empty dump that would wipe the database");
+    process.exit(1);
   }
 
   console.log(`[madgrades] Generating SQL dump for ${allParsed.length} grade records...`);
