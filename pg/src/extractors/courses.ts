@@ -526,6 +526,11 @@ export async function extractCourses(): Promise<void> {
     }
     log(`Processing ${coursesToProcess.length} courses (API reported ${found ?? "unknown"} total)`, "SUCCESS");
 
+    if (coursesToProcess.length === 0) {
+      log("Aborting: 0 courses returned — refusing to generate empty dump that would wipe the database", "ERROR");
+      process.exit(1);
+    }
+
     const courseRows = coursesToProcess.map(transformCourse);
 
     // Build subjects map
