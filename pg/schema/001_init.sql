@@ -192,6 +192,25 @@ CREATE INDEX idx_grades_course_uuid         ON madgrades_course_grades (course_u
 CREATE INDEX idx_course_subs_email          ON course_subscriptions (email);
 CREATE INDEX idx_section_subs_email         ON section_subscriptions (email);
 
+-- ── Trigram fuzzy search (powers /v2/api/search/suggest) ────────────
+-- pg_trgm provides similarity() and the % operator used by the suggest
+-- endpoint's tier-scored ranking. The GIN indexes are what keep that
+-- per-keystroke query off a sequential scan — ILIKE '%x%' and % are both
+-- index-supported by gin_trgm_ops, so the columns must be indexed bare
+-- (an index on the column cannot serve a predicate on COALESCE(column,'')).
+-- Mirrored in api-local/schema/002_search_trgm.sql.
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX idx_courses_designation_trgm
+  ON courses USING gin (course_designation gin_trgm_ops);
+CREATE INDEX idx_courses_title_trgm
+  ON courses USING gin (course_title gin_trgm_ops);
+CREATE INDEX idx_courses_full_designation_trgm
+  ON courses USING gin (full_course_designation gin_trgm_ops);
+CREATE INDEX idx_section_instructors_name_trgm
+  ON section_instructors USING gin (instructor_name gin_trgm_ops);
+
 -- ── Updated-at trigger ──────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION update_updated_at()
