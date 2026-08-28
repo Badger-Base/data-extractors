@@ -1,20 +1,14 @@
 {
   "name": "uw-madison-data-extractors",
   "version": "1.0.0",
-  "description": "Comprehensive data extraction system for UW-Madison academic data from MadGrades, Course Search & Enroll, and Rate My Professor",
+  "description": "WAF token tooling for the BadgerBase Postgres ETL pipeline (see pg/)",
   "type": "module",
-  "main": "src/extractors/course_search_and_enroll_extractor.js",
+  "main": "src/utils/get_waf_token.js",
   "scripts": {
-    "extract:madgrades": "node src/extractors/madgrades_extractor.js",
-    "extract:courses": "node src/extractors/course_search_and_enroll_extractor.js",
-    "extract:rmp": "node src/extractors/rmp-extractor.js",
-    "preprocess:rmp": "python src/preprocessors/rmp_preprocessor.py",
-    "db:import": "node src/utils/run_dumps.js",
-    "test": "node --test tests/*.test.js",
+    "test": "npm test --prefix pg",
     "test:waf": "node test_waf_challenge.js",
     "waf:token": "node src/utils/get_waf_token.js",
-    "waf:update-secret": "node src/utils/update_github_secret.js",
-    "extract:all": "npm run extract:madgrades && npm run extract:courses && npm run extract:rmp"
+    "waf:update-secret": "node src/utils/update_github_secret.js"
   },
   "keywords": [
     "uw-madison",
@@ -28,13 +22,8 @@
   "license": "MIT",
   "dependencies": {
     "@octokit/rest": "^20.0.2",
-    "dotenv": "^17.2.2",
-    "ioredis": "^5.8.2",
-    "mysql2": "^3.14.2",
     "puppeteer": "^24.32.1",
-    "redis": "^5.9.0",
-    "tweetsodium": "^0.0.6",
-    "uuid": "^11.1.0"
+    "tweetsodium": "^0.0.6"
   },
   "engines": {
     "node": ">=14.0.0"
