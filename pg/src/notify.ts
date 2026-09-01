@@ -1,29 +1,48 @@
 import { query, end } from "./db.js";
 import dotenv from "dotenv";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
-const ELASTIC_EMAIL_API_KEY = process.env.ELASTIC_EMAIL_API_KEY;
-const ELASTIC_EMAIL_API_URL = "https://api.elasticemail.com/v2/email/send";
-const FROM_EMAIL = process.env.FROM_EMAIL || "notifications@sconniegrades.com";
+const FROM_EMAIL = process.env.SMTP_FROM || "notifications@badgerbase.app";
 
+let transporter: nodemailer.Transporter | null = null;
+
+function getTransporter(): nodemailer.Transporter {
+  if (!transporter) {
+    if (!process.env.SMTP_HOST) {
+      throw new Error("SMTP_HOST is not configured — cannot send notifications");
+    }
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || "465", 10),
+      secure: true,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+  return transporter;
+}
+
+/**
+ * Seat-open notifications go out through the self-hosted Mox server, the
+ * same transport the API uses for magic links and verification.
+ *
+ * This is the only place this repo sends mail. It previously called the
+ * ElasticEmail HTTP API directly with its own key, which is how it survived
+ * the SMTP migration in the other repos unnoticed — a different repo, a
+ * different transport, and a differently-spelled env var
+ * (ELASTIC_EMAIL_API_KEY vs ELASTICEMAIL_API_KEY).
+ */
 async function sendEmail(to: string, subject: string, htmlBody: string) {
-  if (!ELASTIC_EMAIL_API_KEY) throw new Error("ELASTIC_EMAIL_API_KEY not configured");
-
-  const params = new URLSearchParams({
-    apikey: ELASTIC_EMAIL_API_KEY,
+  await getTransporter().sendMail({
     from: FROM_EMAIL,
     to,
     subject,
-    bodyHtml: htmlBody,
-    isTransactional: "true",
+    html: htmlBody,
   });
-
-  const response = await fetch(`${ELASTIC_EMAIL_API_URL}?${params}`, { method: "POST" });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`ElasticEmail API error: ${response.status} - ${errorText}`);
-  }
   console.log(`  Email sent to ${to}`);
 }
 
