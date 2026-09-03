@@ -55,8 +55,10 @@ jobs:
         working-directory: pg
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ELASTIC_EMAIL_API_KEY: ${{ secrets.ELASTIC_EMAIL_API_KEY }}
-          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          # Submits over Mox's HTTPS API, not SMTP — see pg/src/mailer.ts.
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
         run: npm run notify
 
       - name: Flush Redis cache
