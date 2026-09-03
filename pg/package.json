@@ -15,7 +15,8 @@
     "flush-cache": "tsx src/flush-cache.ts",
     "madgrades-token": "tsx src/utils/get-madgrades-token.ts",
     "waf-token": "tsx src/utils/get-waf-token.ts",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "prune-sessions": "tsx src/prune-sessions.ts"
   },
   "dependencies": {
     "@types/nodemailer": "^8.0.1",
