@@ -15,11 +15,14 @@
     "flush-cache": "tsx src/flush-cache.ts",
     "madgrades-token": "tsx src/utils/get-madgrades-token.ts",
     "waf-token": "tsx src/utils/get-waf-token.ts",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "prune-sessions": "tsx src/prune-sessions.ts"
   },
   "dependencies": {
+    "@types/nodemailer": "^8.0.1",
     "dotenv": "^17.2.2",
     "fuzzball": "^2.2.6",
+    "nodemailer": "^9.1.1",
     "pg": "^8.13.1",
     "puppeteer": "^24.32.1",
     "uuid": "^11.1.0"

@@ -1,0 +1,28 @@
+name: Prune expired sessions
+
+# better-auth never deletes expired session rows. They stop authenticating
+# anyone the moment they expire, so this is housekeeping rather than
+# security — but nothing else reclaims them and the table grows without
+# bound. Weekly is ample: sessions last 7 days and only sign-ins create them,
+# while most BadgerBase traffic is anonymous.
+on:
+  schedule:
+    - cron: "0 8 * * 0" # Sundays, 08:00 UTC (~2-3 AM Central)
+  workflow_dispatch:
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: pg/package-lock.json
+      - run: npm ci
+        working-directory: pg
+      - run: npm run prune-sessions
+        working-directory: pg
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
