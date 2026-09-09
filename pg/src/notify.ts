@@ -1,52 +1,11 @@
 import { query, end } from "./db.js";
 import dotenv from "dotenv";
-import nodemailer from "nodemailer";
+import { pathToFileURL } from "node:url";
+import { sendEmail } from "./mailer.js";
 
 dotenv.config();
 
-const FROM_EMAIL = process.env.SMTP_FROM || "notifications@badgerbase.app";
-
-let transporter: nodemailer.Transporter | null = null;
-
-function getTransporter(): nodemailer.Transporter {
-  if (!transporter) {
-    if (!process.env.SMTP_HOST) {
-      throw new Error("SMTP_HOST is not configured — cannot send notifications");
-    }
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || "465", 10),
-      secure: true,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-  }
-  return transporter;
-}
-
-/**
- * Seat-open notifications go out through the self-hosted Mox server, the
- * same transport the API uses for magic links and verification.
- *
- * This is the only place this repo sends mail. It previously called the
- * ElasticEmail HTTP API directly with its own key, which is how it survived
- * the SMTP migration in the other repos unnoticed — a different repo, a
- * different transport, and a differently-spelled env var
- * (ELASTIC_EMAIL_API_KEY vs ELASTICEMAIL_API_KEY).
- */
-async function sendEmail(to: string, subject: string, htmlBody: string) {
-  await getTransporter().sendMail({
-    from: FROM_EMAIL,
-    to,
-    subject,
-    html: htmlBody,
-  });
-  console.log(`  Email sent to ${to}`);
-}
-
-interface CourseHit {
+export interface CourseHit {
   subscription_id: number;
   course_ref: number;
   email: string;
@@ -57,7 +16,7 @@ interface CourseHit {
   has_waitlisted: boolean;
 }
 
-interface SectionHit {
+export interface SectionHit {
   subscription_id: number;
   section_ref: number;
   email: string;
@@ -69,7 +28,7 @@ interface SectionHit {
   meeting_type: string | null;
 }
 
-async function getOpenCourseSubscriptions(): Promise<CourseHit[]> {
+export async function getOpenCourseSubscriptions(): Promise<CourseHit[]> {
   const { rows } = await query<CourseHit>(`
     SELECT
       cs.id AS subscription_id,
@@ -90,7 +49,7 @@ async function getOpenCourseSubscriptions(): Promise<CourseHit[]> {
   return rows;
 }
 
-async function getOpenSectionSubscriptions(): Promise<SectionHit[]> {
+export async function getOpenSectionSubscriptions(): Promise<SectionHit[]> {
   const { rows } = await query<SectionHit>(`
     SELECT
       ss.id AS subscription_id,
@@ -111,7 +70,7 @@ async function getOpenSectionSubscriptions(): Promise<SectionHit[]> {
   return rows;
 }
 
-function buildCourseEmailHtml(course: CourseHit): string {
+export function buildCourseEmailHtml(course: CourseHit): string {
   const isOpen = course.has_open;
   const statusMessage = isOpen
     ? "This course has completely open seats available!"
@@ -142,7 +101,7 @@ function buildCourseEmailHtml(course: CourseHit): string {
 </body></html>`;
 }
 
-interface GroupedSection {
+export interface GroupedSection {
   subscription_id: number;
   section_ref: number;
   email: string;
@@ -153,13 +112,18 @@ interface GroupedSection {
   meetings: string[];
 }
 
-function buildSectionEmailHtml(section: GroupedSection): string {
+export function buildSectionEmailHtml(section: GroupedSection): string {
   const isOpen = section.status === "OPEN";
   const statusMessage = isOpen
     ? "This section has completely open seats available!"
     : "This section has waitlist seats available!";
   const alertType = isOpen ? "Open" : "Waitlist Available";
-  const meetingsDisplay = section.meetings.length > 0 ? section.meetings.join(", ") : section.section_id;
+  // Defensive: nobody watches this job, so a throw here means a subscriber
+  // silently never hears that their seat opened.
+  const meetingsDisplay =
+    section.meetings && section.meetings.length > 0
+      ? section.meetings.join(", ")
+      : section.section_id;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
@@ -278,7 +242,12 @@ async function main() {
   await end();
 }
 
-main().catch((err) => {
-  console.error("Notification service failed:", err);
-  process.exit(1);
-});
+// Only run when invoked directly. Importing this module used to execute the
+// whole job as a side effect, which meant the queries and the email bodies
+// could not be tested without connecting to a database and sending mail.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error("Notification service failed:", err);
+    process.exit(1);
+  });
+}
